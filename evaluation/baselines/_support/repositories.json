@@ -1,0 +1,58 @@
+[
+  {
+    "name": "Matrix-Game",
+    "url": "https://github.com/SkyworkAI/Matrix-Game.git",
+    "commit": "71c3cd7f741311f8100f6cf9cde942b6c1378d11"
+  },
+  {
+    "name": "Genie-Envisioner-V1",
+    "url": "https://github.com/AgibotTech/Genie-Envisioner-V1.git",
+    "commit": "d41358f7548f2cd9fc4b79fcdf7d86d15a8d7b1e"
+  },
+  {
+    "name": "Hand2World",
+    "url": "https://github.com/NTUYWANG103/Hand2World.git",
+    "commit": "4e9b0095dc9eb0731daf1e9f4a0dd26993ae8b58"
+  },
+  {
+    "name": "open-oasis",
+    "url": "https://github.com/etched-ai/open-oasis.git",
+    "commit": "f59deef2c019c212bd0c5a3a5b986a51f3701847"
+  },
+  {
+    "name": "iVideoGPT",
+    "url": "https://github.com/thuml/iVideoGPT.git",
+    "commit": "d601d5cac9e96c6aa0c17cb37ed6a7c7ca1fb210"
+  },
+  {
+    "name": "WorldMem",
+    "url": "https://github.com/xizaoqu/WorldMem.git",
+    "commit": "c1cc91bdfb2dda52fe309280e5ed046b1faba448"
+  },
+  {
+    "name": "nwm",
+    "url": "https://github.com/facebookresearch/nwm.git",
+    "commit": "3f6cd8e70d6f2d1e2b9684acff510710135f0f41"
+  },
+  {
+    "name": "Ctrl-World",
+    "url": "https://github.com/Robert-gyj/Ctrl-World.git",
+    "commit": "99fb20683fd79dfa6d0c6feb9d49c6c55eecd50d"
+  },
+  {
+    "name": "HyDRA",
+    "url": "https://github.com/H-EmbodVis/HyDRA.git",
+    "commit": "f2c666061098f24d7327968a57e253cf0a339bfa"
+  },
+  {
+    "name": "DreamDojo",
+    "url": "https://github.com/NVIDIA/DreamDojo.git",
+    "commit": "02f119b759d5c7f84a399fdeea3c6e82e7ed6cff"
+  },
+  {
+    "name": "pytorch3d",
+    "url": "https://github.com/facebookresearch/pytorch3d.git",
+    "commit": "33824be3cbc87a7dd1db0f6a9a9de9ac81b2d0ba",
+    "note": "v0.7.9; DreamDojo transforms only; PYTORCH3D_NO_EXTENSION=1"
+  }
+]

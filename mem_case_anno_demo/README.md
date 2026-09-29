@@ -104,10 +104,10 @@ memory_annotations/
 已有旧版标注仍可打开。历史物体描述、gate、证据段和参考框保留在数据里，不再显示或要求编辑，也不会因为这些旧内容与新时间边界不一致而阻止完成关键帧标注。若修改了含旧辅助内容的样本边界，记录 `auxiliary_annotations_need_review: true`，供后续评估者复核。旧证据段不再处于新前缀内时，不输出错误的派生记忆时长。
 推理 JSONL 使用字段白名单，只保留来源、历史 RGB 区间、历史 / 未来动作和 head pose 区间、生成范围、anchor 和空文本条件。物体答案、gate 文字、参考框、证据段不会进入模型条件。来源仍指向整个 WMData case，执行推理时必须按清单中的区间读 RGB。
 
-**标注导出的 JSONL 是区间级推理请求格式，不是 `sample_pt` 的 `index.json`。** 已根据确认的 5 个样本完成适配脚本，产物和推理入口见 [样本构建说明](../../case_definition/README.md)。`../../case_definition/build_evaluation_cases.py` 提取原始区间及独立手骨架，`../../case_definition/pack_evaluation_cases.py` 用真实 Wan VAE / 文本编码器生成可供当前推理使用的 `sample_pt_v2`，`../../pipeline/infer_evaluation_cases.py` 负责从 t 开始滚动预测并裁出评估片段。保留历史及未来 head pose。
+**标注导出的 JSONL 是区间级推理请求格式，不是 `sample_pt` 的 `index.json`。** 已根据确认的 5 个样本完成适配脚本，产物和推理入口见 [样本构建说明](../evaluation/case_definition/README.md)。`../../case_definition/build_evaluation_cases.py` 提取原始区间及独立手骨架，`../../case_definition/pack_evaluation_cases.py` 用真实 Wan VAE / 文本编码器生成可供当前推理使用的 `sample_pt_v2`，`../../pipeline/infer_evaluation_cases.py` 负责从 t 开始滚动预测并裁出评估片段。保留历史及未来 head pose。
 
 ## 与后续评估的关系
 
 此页面只负责定位前缀、动作段和稳定评估段，完成标注表示时间边界就绪。后续评估仍遵循 `memory_i = gate_i × object_match_i`：先判断生成动作是否实现、目标区域是否被揭示；gate 不通过时 memory 为 0，通过后在稳定评估段判断物体匹配。gate / object score 默认都是 `null`，由评估程序另行判定，不需要在此页面填写。
 
-前缀长度和动态记忆的代码核查见 [MEMORY_PREFIX_LIMITS.md](../../pipeline/MEMORY_PREFIX_LIMITS.md)。
+前缀长度和动态记忆的代码核查见 [MEMORY_PREFIX_LIMITS.md](../evaluation/pipeline/MEMORY_PREFIX_LIMITS.md)。

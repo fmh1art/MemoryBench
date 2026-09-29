@@ -19,4 +19,4 @@
 
 此模式没有单独的动作结束和稳定评估边界，明确使用完整生成段进行评估，`action_end=null`、`evaluation_scope=full_annotated_generation`；保留原始 `source_marks`，不伪造人工边界。`--include-drafts` 仅在明确选用有效草稿时传入，不改变源标注状态。五边界模式不变。
 
-已构建示例与复现信息：[13 个语义组抽样](../evaluation_cases/quest_20260921_semantic13_v1/README.md)。
+已构建示例与复现信息：[13 个语义组抽样](../../data/README.md)。

@@ -1,14 +1,16 @@
+> 本文保留 v2.1.0 评分口径和早期 office 实验说明。当前发布共 38 个 case；可移植运行命令以[项目 README](../../README.md)为准。
+
 # ACWM Memory Evaluation v2.1.0
 
 当前入口采用人工任务标注、独立动作 Gate 和稳定片段逐对图像评估；旧版自动定位、类别最大匹配流程不再运行。
-最新结果：[epoch 10 / step30080 的 5 个样本](../evaluation_results/memory_eval_v2_1_epoch10_step30080_20260912/REPORT.md)。
+历史结果保留在原工作目录的 evaluation_results，本代码仓库不包含历史预测视频。
 界面：`http://127.0.0.1:8891/memory_eval_v2_1_epoch10_step30080_20260912/`，远程访问需转发 8891 端口。
 
 ## 输入与流程
 
 每个 `../evaluation_cases/eval_*/memory_annotation.json` 保存人工定义的目标、动作和完成条件。
-当前 5 个样本的目标均为抽屉内的物体；第 2 个样本为 `turn_view`，其余为 `open_drawer`。
-标注过程见 [data_annotation](../ground_truth/annotation/README.md)，本程序不再让 VLM 推断目标。
+早期 office 批次的 5 个样本的目标均为抽屉内的物体；第 2 个样本为 `turn_view`，其余为 `open_drawer`。
+标注过程见 [data_annotation](../../mem_case_anno_demo/README.md)，本程序不再让 VLM 推断目标。
 
 1. 从生成动作段 `[t, action_end)` 按时间顺序均匀抽 6 帧，少于 6 帧时使用全部帧。
 2. 从 GT 和生成的稳定评分段 `[eval_start, eval_end)` 各均匀抽 8 帧，少于 8 帧时使用全部帧。
@@ -18,7 +20,7 @@
 6. 每维先跨图片对求平均，再按配置的权重求归一化加权平均。
 
 抽帧使用视频真实 PTS，保留首尾及真实帧号；双方抽帧数不同时配成较多侧的组数，较短侧可重复最近进度的帧，所有独立抽帧均被使用且重复有记录。
-当前 5 个样本都满足 8 对图；每个 Gate 通过的样本共 9 次逻辑调用（Gate 1 次、图片对 8 次），格式修复重试单独记录。
+早期 office 批次的 5 个样本都满足 8 对图；每个 Gate 通过的样本共 9 次逻辑调用（Gate 1 次、图片对 8 次），格式修复重试单独记录。
 所有 prompt 包含 ACWM 任务背景，客户端和 vLLM 服务的每次图片输入上限均为 8。
 
 ## 三维定义与权重
@@ -35,7 +37,7 @@ GT 无适用事实的维度为 N/A 并排除；生成缺失、模糊或错误不
 默认三个配置权重均为 1；三个维度都适用时各占 1/3。
 Gate 失败的内容维度显示“未评估”，API 或无效 GT 错误保留 null 且不作为模型零分。
 
-修改 [local.toml](../configs/local.toml) 的权重即可用于下一次评估：
+修改 [local.toml](../../configs/example.toml) 的权重即可用于下一次评估：
 
 ```toml
 [weights]
@@ -48,9 +50,9 @@ spatial = 1.0
 
 ## 运行
 
-Python 使用 `/mnt/vdb_1t/project/acwm/MemWorld/.venv/bin/python`，依赖见 [requirements-eval.txt](../requirements-eval.txt)。
+Python 使用自己的 Python 3.11+ 环境，依赖见 [requirements-eval.txt](../../requirements-eval.txt)。
 VLM 部署参考 `../../../deploy/qwen3_8_vllm`（仓库根目录的 deploy），历史运行使用 `memory_bench_4gpu.config.sh`；当前服务以本机部署配置为准。
-[local.toml](../configs/local.toml) 已配置本地 API、模型、采样和权重；需要密钥时可使用 `MEM_BENCH_API_KEY` 环境变量。
+复制 [example.toml](../../configs/example.toml) 为 configs/local.toml，并配置自己的 API、模型、采样和权重；需要密钥时可使用 `MEM_BENCH_API_KEY` 环境变量。
 
 复用已经生成的视频，重跑全部 VLM 评估：
 
@@ -59,7 +61,7 @@ cd /mnt/vdb_1t/project/acwm/acwm_data_rsi_system/mem_bench/protocol
 /mnt/vdb_1t/project/acwm/MemWorld/.venv/bin/python reevaluate_memory_bench.py \
   --source ../evaluation_results/memory_eval_epoch10_step30080_20260912 \
   --output ../evaluation_results/my_new_evaluation \
-  --root evaluation_cases --config ../configs/local.toml --workers 4
+  --root evaluation_cases --config ../../configs/example.toml --workers 4
 ```
 
 同一模型、标注、配置和版本中断后可追加 `--resume`；修改配置或 prompt 时应使用新目录，避免混合口径。
@@ -71,7 +73,7 @@ cd /mnt/vdb_1t/project/acwm/acwm_data_rsi_system/mem_bench/protocol
   --generated /path/to/generated_evaluation.mp4 \
   --action /path/to/generated_action.mp4 \
   --annotation ../evaluation_cases/eval_001_a17f6882/memory_annotation.json \
-  --config ../configs/local.toml --output-dir /path/to/new_result
+  --config ../../configs/example.toml --output-dir /path/to/new_result
 ```
 
 需要重新生成 ACWM 视频时：
@@ -79,7 +81,7 @@ cd /mnt/vdb_1t/project/acwm/acwm_data_rsi_system/mem_bench/protocol
 ```bash
 /mnt/vdb_1t/project/acwm/MemWorld/.venv/bin/python run_memory_bench.py \
   --root evaluation_cases --output ../evaluation_results/my_new_generation \
-  --config ../configs/local.toml --gpus 0,1,2,3 --checkpoint /path/to/dit.safetensors \
+  --config ../../configs/example.toml --gpus 0,1,2,3 --checkpoint /path/to/dit.safetensors \
   --steps 20 --cfg 5 --seed 42
 ```
 
@@ -105,8 +107,8 @@ cd /mnt/vdb_1t/project/acwm/acwm_data_rsi_system/mem_bench/protocol
 | 环节 | 实现 |
 | --- | --- |
 | 抽帧及图片配对 | [video.py](../common/video.py)、[pipeline.py](pipeline.py) |
-| Gate prompt | [action_gate.md](../metric/rubrics/action_gate.md) |
-| 三维 rubric | [pair_judge.md](../metric/rubrics/pair_judge.md)、[common.md](../metric/rubrics/common.md) |
+| Gate prompt | [action_gate.md](../prompt/action_gate.md) |
+| 三维 rubric | [pair_judge.md](../prompt/pair_judge.md)、[common.md](../prompt/common.md) |
 | JSON 契约与评分 | [schemas.py](../metric/schemas.py)、[scoring.py](../metric/scoring.py) |
 | API 请求、上限与重试 | [vlm.py](../common/vlm.py) |
 | 视频复用与批处理 | [assets.py](../case_definition/assets.py)、[reevaluate_memory_bench.py](reevaluate_memory_bench.py) |

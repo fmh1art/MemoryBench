@@ -53,6 +53,6 @@ sample_pt 推理的动态选择默认分数为 `0.9 × FOV overlap + 0.1 × fres
 
 后续适配必须让 memory 的 RGB 来源严格位于 `[prefix_start, t)`，使用 t−1 为末次真实 RGB anchor；t 之后可以输入真实手部动作和 head pose，但不能将未来 RGB / GT 物体标签送进条件。更后面的预测使用模型自己的历史生成帧滚动，不能使用 `--teacher_forced_rgb` 冒充完整未来 rollout。
 
-区间级标注不能直接当 `sample_pt` 索引。本次已加入 `build_evaluation_cases.py` / `pack_evaluation_cases.py` / `infer_evaluation_cases.py` 完成适配：严格按所选前缀建 cache、对齐 sensor 动作、显式记录 32 帧分块补帧、将生成结果裁回原始评估区间。原推理 CLI 新增 `--episode_start_clip`，保留此前的索引用于 memory 预热，同时从指定 clip 开始生成。产物说明见 [evaluation_cases/README.md](../evaluation_cases/README.md)；已用 step4529 在一个样本上完成两段低步数连续推理，验证数据与 rollout 兼容性。
+区间级标注不能直接当 `sample_pt` 索引。本次已加入 `build_evaluation_cases.py` / `pack_evaluation_cases.py` / `infer_evaluation_cases.py` 完成适配：严格按所选前缀建 cache、对齐 sensor 动作、显式记录 32 帧分块补帧、将生成结果裁回原始评估区间。原推理 CLI 新增 `--episode_start_clip`，保留此前的索引用于 memory 预热，同时从指定 clip 开始生成。产物说明见 [evaluation_cases/README.md](../../data/README.md)；已用 step4529 在一个样本上完成两段低步数连续推理，验证数据与 rollout 兼容性。
 
 为验证 memory，建议输出每个预测 chunk 检索到的原始帧号，并与人工证据段比较。主分数应使用模型自己的检索；额外提供「人工保证检索到证据」的结果时，应明确标为 oracle 对照，不能混入主结果。
