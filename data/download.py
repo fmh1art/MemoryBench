@@ -43,7 +43,7 @@ def main():
         if not hasattr(tarfile, 'data_filter'):
             raise RuntimeError('Upgrade Python to a security-patched 3.11+ with tarfile.data_filter')
         for record in records:
-            with tarfile.open(snapshot / record['path'], 'r:gz') as archive:
+            with tarfile.open(snapshot / record['path'], 'r:*') as archive:
                 archive.extractall(destination, filter='data')
         print(f'Cases extracted to {destination / "evaluation_cases"}')
 

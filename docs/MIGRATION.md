@@ -22,7 +22,9 @@ baselines (model adapters), and tests. The data downloader verifies checksums.
 
 `our_method` contains downloaded model/checkpoint transfer bundles; `simulation`
 is a separate generation research area. Neither is required for the benchmark
-scoring path and neither is included in this release. Historical evaluation_results,
+scoring path. The 11 home cases’ directly referenced sample banks and latent caches
+are included in the dataset dependency archives; other model transfer bundles and
+simulation assets are not included in this release. Historical evaluation_results,
 logs, caches, local.toml and annotation service working records remain in the source.
 All evaluation_cases contents, including annotations and batch validation records,
 are archived. External selected-video symlinks were materialized; internal relative

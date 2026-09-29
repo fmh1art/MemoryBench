@@ -17,6 +17,7 @@ metadata/eval_case.schema.json
 archives/office_and_annotations.tar.gz
 archives/memory_home_yijie_0924_v1.tar.gz
 archives/quest_20260921_semantic13_v1.tar.gz
+archives/home_dependencies_01.tar ... home_dependencies_11.tar
 ```
 
 Extract all archives into the same directory. They produce `evaluation_cases/`,
@@ -87,3 +88,25 @@ Validate metadata using `python data/validate.py --root data/evaluation_cases`.
 Archive SHA-256 verifies bytes; metadata validation checks schema, IDs, boundaries,
 counts, slices, required assets and input-vs-GT conditioning. Existing validation
 records are preserved rather than replaced with fabricated successful results.
+
+## Home bank dependencies
+
+The 11 home indices originally referenced sample banks outside evaluation_cases.
+The release includes those banks and their complete direct latent/prompt cache
+files under `evaluation_cases/memory_home_yijie_0924_v1/_dependencies/`.
+Extract the three original case archives first, then all home_dependencies_*.tar
+archives. These supplemental archives replace only the 11 packed/index.json files
+with relative bank paths; the original indices remain in the original home archive.
+The downloader follows archives.json in this order automatically.
+
+The bank files themselves remain byte-identical. Use the transferred MemWorld
+loader with sample_index support and its original path-remap mechanism:
+
+```bash
+export MEMWORLD_PATH_REMAP_FROM=/aifs/xuyijie/memworld/data/egoquest-memory-home-direct-20260921-fps4over3
+export MEMWORLD_PATH_REMAP_TO="$(pwd)/data/evaluation_cases/memory_home_yijie_0924_v1/_dependencies"
+```
+
+`metadata/home_dependencies.json` records all bank mappings. This restores bank
+and latent-cache availability; it does not implement the missing fixed-memory
+mid-trajectory rollout adapter or authorize future RGB as conditioning.

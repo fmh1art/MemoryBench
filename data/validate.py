@@ -28,6 +28,9 @@ def validate(root):
         assert case['input_contract'].get('future_gt_rgb_is_model_condition') is False, path
         for asset in ('annotation.json', 'memory_annotation.json', 'input', 'ground_truth/future.mp4', 'ground_truth/evaluation.mp4', 'packed/index.json', 'frame_mapping.npz'):
             assert (path.parent / asset).exists(), (path, asset)
+        index = path.parent / "packed/index.json"
+        for sample in json.loads(index.read_text()).get("samples", []):
+            assert (index.parent / sample["path"]).is_file(), (path, sample["path"])
     return len(cases)
 
 
