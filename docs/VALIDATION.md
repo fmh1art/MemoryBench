@@ -13,3 +13,5 @@ Dependencies: external model repositories/checkpoints are needed for generation.
 Home bank dependencies are additionally included in 11 supplemental archives with relative packed indices. The final asset validator also checks every referenced sample-bank file exists.
 
 The extracted release passed validation for all 38 cases, including every packed sample path. All 11 home banks and their remapped memory-table, trajectory-cache and prompt-cache paths were checked; see metadata/dependency_validation.json in the dataset.
+
+Remote verification found all 61 release files, with matching sizes; all 14 archive SHA-256 values match ModelScope. Downloaded metadata matched byte-for-byte. The public file-download API was checked for the manifest and dependency report. The downloader verifies all 14 local archive checksums without relying on recursive repository listing.

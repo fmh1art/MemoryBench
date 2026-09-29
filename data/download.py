@@ -17,15 +17,28 @@ def main():
         if key.lower() in ('http_proxy', 'https_proxy', 'all_proxy'):
             del os.environ[key]
     os.environ['NO_PROXY'] = os.environ['no_proxy'] = '*'
-    from modelscope.hub.snapshot_download import dataset_snapshot_download
+    from modelscope.hub.file_download import dataset_file_download
     from modelscope.hub.api import HubApi
     token = os.environ.get('MODELSCOPE_API_TOKEN')
     if token:
         HubApi().login(token)
     destination = args.output.resolve()
     destination.mkdir(parents=True, exist_ok=True)
-    snapshot = Path(dataset_snapshot_download(args.repo, local_dir=str(destination / 'MemoryBenchData')))
-    records = json.loads((snapshot / 'archives.json').read_text())
+    snapshot = destination / 'MemoryBenchData'
+    def fetch(name):
+        return Path(dataset_file_download(args.repo, name, local_dir=str(snapshot), token=token))
+    records = json.loads(fetch('archives.json').read_text())
+    for name in ('README.md', 'SHA256SUMS', 'metadata/cases.jsonl',
+                 'metadata/DATA_FORMAT.md', 'metadata/eval_case.schema.json',
+                 'metadata/archive_validation.json', 'metadata/home_dependencies.json',
+                 'metadata/dependency_validation.json'):
+        fetch(name)
+    # Fetch explicitly: SDK recursive listings may truncate repositories at 100 entries.
+    for record in records:
+        name = record['path']
+        if Path(name).is_absolute() or '..' in Path(name).parts:
+            raise ValueError('Unsafe archive path')
+        fetch(name)
     for record in records:
         archive = (snapshot / record['path']).resolve()
         if not archive.is_relative_to(snapshot.resolve()):
