@@ -1,0 +1,25 @@
+# Memory Evaluation v2; Qwen3.8-27B on GPU 4,5,6,7.
+[api]
+endpoint = "http://127.0.0.1:8000/v1/chat/completions"
+model = "qwen3.8-27b"
+api_key = ""
+api_key_env = "MEM_BENCH_API_KEY"
+timeout_seconds = 240
+retries = 2
+max_tokens = 8192
+temperature = 0
+json_mode = true
+trust_env = false
+max_images_per_query = 8
+extra_body = { chat_template_kwargs = { enable_thinking = false } }
+
+[sampling]
+frames_per_video = 8
+action_frames = 6
+image_max_side = 768
+
+# Normalize these weights over dimensions applicable to the GT.
+[weights]
+inventory = 1.0
+appearance = 1.0
+spatial = 1.0

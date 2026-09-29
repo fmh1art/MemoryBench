@@ -1,0 +1,9 @@
+-r requirements-eval.txt
+fastapi
+uvicorn
+pandas
+pyarrow
+imageio
+pytest
+jsonschema
+modelscope

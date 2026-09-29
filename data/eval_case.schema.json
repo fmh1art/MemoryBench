@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MemoryBench existing evaluation case v1",
+  "type": "object",
+  "required": [
+    "evaluation_case_id",
+    "annotation_id",
+    "source_case_id",
+    "marks",
+    "width",
+    "height",
+    "fps",
+    "prefix_frame_count",
+    "generation_frame_count",
+    "evaluation_frame_count",
+    "prediction_future_slice",
+    "prediction_evaluation_slice",
+    "input_contract",
+    "status"
+  ],
+  "properties": {
+    "prefix_frame_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "generation_frame_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "evaluation_frame_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "padding_left_frames": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "padding_right_frames": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "model_anchor_frame": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "inference_start_clip": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "generation_clips": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total_clips": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "evaluation_case_id": {
+      "type": "string"
+    },
+    "annotation_id": {
+      "type": "string"
+    },
+    "source_case_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "directory": {
+      "type": "string"
+    },
+    "packed_index": {
+      "type": "string"
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "fps": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "marks": {
+      "type": "object",
+      "required": [
+        "prefix_start",
+        "t",
+        "eval_end"
+      ],
+      "properties": {
+        "prefix_start": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "prefix_end": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "t": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "action_end": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "eval_start": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "eval_end": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "prediction_future_slice": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "prediction_evaluation_slice": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "input_contract": {
+      "type": "object",
+      "properties": {
+        "future_gt_rgb_is_model_condition": {
+          "const": false
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

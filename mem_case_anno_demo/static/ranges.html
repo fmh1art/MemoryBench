@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ACWM · 前缀 / 生成片段标注</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header><div><b class="brand">ACWM <span>/ MEMORY</span></b><small>前缀 / 生成片段标注工作台</small></div><div class="toolbar"><span id="saveState">准备中</span><button id="exportInfer">导出推理清单</button><button id="exportEval">导出前缀 / 生成片段标注</button><button id="saveDraft">保存草稿 <kbd>⌘/Ctrl S</kbd></button><button id="saveComplete" class="primary">完成标注</button></div></header>
+<div class="layout">
+<aside><div class="asideTitle"><b>CASE 视频</b><span id="caseCount"></span></div><input id="search" type="search" placeholder="搜索日期或 case ID…"><div id="caseList"></div><div class="asideFoot">原视频保持只读<br><span id="outputPath"></span></div></aside>
+<main>
+<div class="titleRow"><div><h1 id="caseTitle">载入视频…</h1><div id="videoInfo" class="muted"></div></div><label class="inline">视角 <select id="viewSelect"></select></label></div>
+<div class="episodeRow"><label class="inline">评估样本 <select id="episodeSelect"><option value="">新样本</option></select></label><button id="newEpisode">＋ 新建样本</button><button id="deleteEpisode" style="color:#b42318">删除当前样本</button><span class="muted">同一 case 可标注多个样本，每个样本独立保存前缀和生成区间，可与其他样本复用区间。</span></div>
+<div class="workspace">
+<section class="viewer">
+<div id="stage"><video id="video" preload="metadata" playsinline></video><img id="still" alt="原始视频精确帧"><span id="frameLoading">加载精确帧…</span></div>
+<div class="transport"><button id="backSecond" title="后退 1 秒">−1s</button><button id="prevFrame" title="上一帧 ←">−1 帧</button><button id="play" class="primary">播放</button><button id="nextFrame" title="下一帧 →">＋1 帧</button><button id="forwardSecond">＋1s</button><select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option><option value="16">16×</option><option value="32">32× 快览</option></select><label class="inline">帧 <input id="frameInput" type="number" min="0" value="0"></label></div>
+<input id="scrubber" type="range" min="0" max="100" value="0" step="1" aria-label="视频帧位置">
+<div class="clockRow"><span id="mediaClock"></span><span id="sensorClock"></span></div>
+<div id="timeline" title="点击时间轴定位"><div class="lane" id="prefixLane"></div><div class="lane" id="actionLane"></div><div class="lane" id="evalLane"></div><div id="playhead"></div></div>
+<div class="legend"><span class="prefixDot">视频前缀</span><span class="actionDot">生成视频</span><span>两段独立选取，构建时前后拼接</span></div>
+<div id="rangeSummary" class="summary">先观看视频，在右侧记录事件边界。</div>
+<div class="previewRow"><span>预览：</span><button data-preview="prefix">前缀</button><button data-preview="generation">整个生成段</button><label class="inline"><input id="loop" type="checkbox" checked>循环</label></div>
+<div class="help">最高 32× 快览；暂停后可逐帧定位。<br>空格 播放 / 暂停 · ← → 逐帧 · Shift + ← → 跳 1 秒 · 1–4 标记边界<br>帧号从 0 开始；结束边界不包含该帧。例如 [100, 130) 包含第 100–129 帧。</div>
+</section>
+<section class="boundaries panel"><div class="panelHeading"><h2>关键帧</h2><span>用当前帧标记</span></div><p class="muted">标注前缀与生成片段的开始、结束。设置前缀结束时默认同步生成开始。直接修改生成开始会自动解除联动，保留前缀结束；两段之间的源视频不会加入 eval case。</p><label class="inline"><input id="linkBoundaries" type="checkbox" checked>生成开始跟随前缀结束（可取消）</label><label style="display:block;margin:16px 0">Eval case 名称<input id="caseName" type="text" maxlength="500" placeholder="例如：抽屉取物_第一次" style="display:block;width:100%;box-sizing:border-box;margin-top:8px"></label><p class="muted">可选；每条标注独立命名，保存后显示在样本列表中。</p><div id="markRows"></div><button id="endAtVideo">生成结束设为视频末尾</button></section>
+</div>
+<div id="validation" role="status"></div><footer>标注按原始帧号保存，保留 MP4 PTS 与传感器时间戳；不使用平均 FPS 换算动作时间。<br>保存位置：<span id="footerPath"></span></footer>
+</main></div><div id="toast" role="alert"></div><script>window.ACWM_RANGE_MODE=true;</script><script src="/static/app.js?v=delete-sample-5"></script>
+</body></html>

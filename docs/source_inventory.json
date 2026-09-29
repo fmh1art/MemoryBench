@@ -1,0 +1,315 @@
+{
+  "source": "/mnt/vdb_1t/project/acwm/acwm_data_rsi_system/mem_bench/evaluation_cases",
+  "case_count": 38,
+  "batches": {
+    ".": 5,
+    "memory_home_yijie_0924_v1": 11,
+    "quest_20260921_semantic13_v1": 22
+  },
+  "cases": [
+    {
+      "path": "eval_001_a17f6882",
+      "case_id": "eval_001_a17f6882",
+      "status": "ready",
+      "files": 330,
+      "bytes": 2817524402,
+      "has_packed_index": true
+    },
+    {
+      "path": "eval_002_10891f27",
+      "case_id": "eval_002_10891f27",
+      "status": "ready",
+      "files": 47,
+      "bytes": 244897964,
+      "has_packed_index": true
+    },
+    {
+      "path": "eval_003_f9437f43",
+      "case_id": "eval_003_f9437f43",
+      "status": "ready",
+      "files": 267,
+      "bytes": 2234597272,
+      "has_packed_index": true
+    },
+    {
+      "path": "eval_004_9a896908",
+      "case_id": "eval_004_9a896908",
+      "status": "ready",
+      "files": 189,
+      "bytes": 1540201618,
+      "has_packed_index": true
+    },
+    {
+      "path": "eval_005_9fc96579",
+      "case_id": "eval_005_9fc96579",
+      "status": "ready",
+      "files": 148,
+      "bytes": 1165363671,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_001_zdd01",
+      "case_id": "eval_001_zdd01",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 199710706,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_002_zdd02",
+      "case_id": "eval_002_zdd02",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 597461591,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_003_zdd03",
+      "case_id": "eval_003_zdd03",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 273735464,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_004_zdd04",
+      "case_id": "eval_004_zdd04",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 127771286,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_005_zdd05",
+      "case_id": "eval_005_zdd05",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 603501697,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_006_zdd06",
+      "case_id": "eval_006_zdd06",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 471137395,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_007_zdd07",
+      "case_id": "eval_007_zdd07",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 600725763,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_008_zdd08",
+      "case_id": "eval_008_zdd08",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 593672830,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_009_zdd09",
+      "case_id": "eval_009_zdd09",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 439512288,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_010_zdd10",
+      "case_id": "eval_010_zdd10",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 325575121,
+      "has_packed_index": true
+    },
+    {
+      "path": "memory_home_yijie_0924_v1/eval_011_qlj08",
+      "case_id": "eval_011_qlj08",
+      "status": "assets_ready",
+      "files": 28,
+      "bytes": 516117212,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_001_ai-batch",
+      "case_id": "eval_001_ai-batch",
+      "status": "ready",
+      "files": 62,
+      "bytes": 355162508,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_002_ai-batch",
+      "case_id": "eval_002_ai-batch",
+      "status": "ready",
+      "files": 63,
+      "bytes": 369341018,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_003_92fb5501",
+      "case_id": "eval_003_92fb5501",
+      "status": "ready",
+      "files": 62,
+      "bytes": 365937035,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_004_023ac96a",
+      "case_id": "eval_004_023ac96a",
+      "status": "ready",
+      "files": 61,
+      "bytes": 351522853,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_005_2b9366bd",
+      "case_id": "eval_005_2b9366bd",
+      "status": "ready",
+      "files": 75,
+      "bytes": 456498899,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_006_ai-batch",
+      "case_id": "eval_006_ai-batch",
+      "status": "ready",
+      "files": 89,
+      "bytes": 584231610,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_007_ai-batch",
+      "case_id": "eval_007_ai-batch",
+      "status": "ready",
+      "files": 89,
+      "bytes": 584000030,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_008_ai-batch",
+      "case_id": "eval_008_ai-batch",
+      "status": "ready",
+      "files": 88,
+      "bytes": 569832898,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_009_ai-batch",
+      "case_id": "eval_009_ai-batch",
+      "status": "ready",
+      "files": 65,
+      "bytes": 392365555,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_010_161ebc01",
+      "case_id": "eval_010_161ebc01",
+      "status": "ready",
+      "files": 54,
+      "bytes": 290307868,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_011_6f034827",
+      "case_id": "eval_011_6f034827",
+      "status": "ready",
+      "files": 52,
+      "bytes": 261758445,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_012_ai-batch",
+      "case_id": "eval_012_ai-batch",
+      "status": "ready",
+      "files": 60,
+      "bytes": 342451556,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_013_ai-batch",
+      "case_id": "eval_013_ai-batch",
+      "status": "ready",
+      "files": 61,
+      "bytes": 357045979,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_014_ai-batch",
+      "case_id": "eval_014_ai-batch",
+      "status": "ready",
+      "files": 57,
+      "bytes": 322018653,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_015_ai-batch",
+      "case_id": "eval_015_ai-batch",
+      "status": "ready",
+      "files": 56,
+      "bytes": 307825400,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_016_ai-batch",
+      "case_id": "eval_016_ai-batch",
+      "status": "ready",
+      "files": 81,
+      "bytes": 545139959,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_017_ai-pilot",
+      "case_id": "eval_017_ai-pilot",
+      "status": "ready",
+      "files": 73,
+      "bytes": 463994146,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_018_ai-batch",
+      "case_id": "eval_018_ai-batch",
+      "status": "ready",
+      "files": 119,
+      "bytes": 900873208,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_019_ai-batch",
+      "case_id": "eval_019_ai-batch",
+      "status": "ready",
+      "files": 92,
+      "bytes": 655013592,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_020_ai-batch",
+      "case_id": "eval_020_ai-batch",
+      "status": "ready",
+      "files": 186,
+      "bytes": 1492697982,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_021_ai-batch",
+      "case_id": "eval_021_ai-batch",
+      "status": "ready",
+      "files": 231,
+      "bytes": 1923174937,
+      "has_packed_index": true
+    },
+    {
+      "path": "quest_20260921_semantic13_v1/eval_022_ai-batch",
+      "case_id": "eval_022_ai-batch",
+      "status": "ready",
+      "files": 231,
+      "bytes": 1923682741,
+      "has_packed_index": true
+    }
+  ]
+}

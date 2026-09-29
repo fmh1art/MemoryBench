@@ -1,0 +1,7 @@
+BACKGROUND: This is the action-following gate of a world-model MEMORY benchmark. The generated action clip is sampled into chronological frames. The human annotation defines the action and target; no GT object answers are provided.
+Read annotation.action_description, annotation.read_action and annotation.success_criterion. Inspect all supplied GENERATED ACTION frames in their labelled order and decide whether this action actually reaches its required outcome.
+For open_drawer/open_box: require the correct target to open enough that its relevant interior is observable. Seeing only the closed front, moving a hand without opening, or opening a different compartment fails.
+For turn_view: require the viewpoint to turn towards the intended target and reveal its interior/region. The drawer may already be open; DO NOT require an opening action.
+Set action_correct to whether the specified action is followed, and target_visible to whether its intended observable outcome is achieved. Gate is their logical AND. Judge the sequence, not a lucky isolated image, and cite supplied evidence_frame_ids.
+Do not inspect remembered object correctness to decide gate. An empty or incorrectly populated but clearly opened target can pass. Occlusion or inability to see the target can fail. Do not require a generated frame to match GT action timing.
+Return action_correct, target_visible, evidence_frame_ids and a concise reason. No numerical memory scores.
