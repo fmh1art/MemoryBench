@@ -1,293 +1,470 @@
-"""v2 protocol checks use a scripted API; they do not claim to measure VLM accuracy."""
+"""Protocol regressions: real timestamped videos, deterministic metrics and mocked VLM calls."""
 
+import asyncio
 import json
 from fractions import Fraction
 from pathlib import Path
+
 import av
 import httpx
-import numpy as np
 import pytest
-from evaluation.common.config import (
-    Config,
-    APIConfig,
-    SamplingConfig,
-    WeightConfig,
-)
-from evaluation.pipeline.pipeline import evaluate, pair_frames
-from evaluation.metric.schemas import PairJudgment, GateJudgment
-from evaluation.ground_truth.schema import MemoryAnnotation
-from evaluation.metric.scoring import aggregate, score_pair
-from evaluation.common.video import Frame, uniform_frames
-from evaluation.common.vlm import VLM, EvaluationError
-from evaluation.case_definition.assets import crop_video
+from PIL import Image
+from pydantic import ValidationError
 
+from evaluation.appearance.schema import Judgment as Appearance
+from evaluation.environment.schema import Judgment as Environment
+from evaluation.gate.schema import Judgment as Gate
+from evaluation.inventory.schema import Judgment as Inventory
+from evaluation.inventory.scoring import score_inventory
+from evaluation.judge import Judge, validate_evidence
+from evaluation.run import evaluate_case, load_cases, main
+from evaluation.schema import Case, Metric
+from evaluation.scoring import score_memory, summarize
+from evaluation.spatial.schema import Judgment as Spatial
+from evaluation.video import make_sheets
 
-def judgment(wrong=False):
-    obj = {
-        "id": "o1",
-        "description": "有蓝色条纹和缺口的杯子",
-        "identity_features": "独特蓝色条纹和杯沿缺口",
+EVIDENCE = [
+    {
+        "frame_indices": [9, 12],
+        "observation": "GT and Gen show the same red cup in the drawer.",
     }
+]
+
+
+def metric(score=5, status="scored"):
+    return {"status": status, "score": score, "evidence": EVIDENCE}
+
+
+def replies():
     return {
-        "gt_readable": True,
-        "generated_readable": True,
-        "gt_objects": [obj],
-        "generated_objects": (
-            [obj | {"identity_features": "不同的结构和花纹"}] if wrong else [obj]
-        ),
-        "verified_matches": (
-            []
-            if wrong
-            else [
+        "gate": {
+            "observability": {"label": 1, "evidence": EVIDENCE},
+            "action_following": {"label": 1, "evidence": EVIDENCE},
+        },
+        "inventory": {
+            "region_assessable": True,
+            "objects": [
                 {
-                    "gt_id": "o1",
-                    "gen_id": "o1",
-                    "evidence": "两图独特条纹和杯沿缺口对应",
+                    "object_id": "cup",
+                    "description": "red cup",
+                    "gt_count": 1,
+                    "gen_count": 1,
+                    "evidence": EVIDENCE,
                 }
-            ]
-        ),
-        "appearance_items": [
-            {"gt_id": "o1", "score": 0 if wrong else 0.75, "reason": "单物体外观判断"}
-        ],
-        "gt_spatial_applicable": False,
-        "dimensions": {
-            "inventory": {"score": 0 if wrong else 1, "reason": "实例数量"},
-            "appearance": {"score": 0 if wrong else 0.75, "reason": "细节"},
-            "spatial": {"score": None, "reason": "单物体，无可判定内部位置关系"},
+            ],
+            "evidence": EVIDENCE,
         },
-        "summary": "图像证据",
+        "appearance": {"visual_appearance": metric(), "geometry_shape": metric()},
+        "spatial": {
+            "object_localization": metric(),
+            "relative_spatial_relation": metric(),
+        },
+        "environment": {
+            "scene_structure": metric(),
+            "background_appearance": metric(),
+            "lighting_style": metric(None, "not_applicable"),
+        },
     }
 
 
-def test_category_similarity_cannot_earn_memory_credit():
-    j = PairJudgment.model_validate(judgment(wrong=True))
-    row = {"scores": score_pair(j)[0]}
-    assert aggregate([row], 1)["memory_score"] == 0
-    raw = judgment(wrong=True)
-    raw["dimensions"]["appearance"]["score"] = 0.5
-    assert score_pair(PairJudgment.model_validate(raw))[0]["appearance"] == 0
-
-
-def test_unmatched_objects_cannot_be_forced_or_receive_appearance_credit():
-    raw = judgment()
-    raw["verified_matches"][0]["gt_id"] = "unknown"
-    with pytest.raises(ValueError, match="reference"):
-        PairJudgment.model_validate(raw)
-    raw = judgment()
-    raw["gt_objects"].append(raw["gt_objects"][0] | {"id": "o2"})
-    raw["dimensions"]["inventory"]["score"] = 2 / 3
-    with pytest.raises(ValueError, match="appearance_items"):
-        PairJudgment.model_validate(raw)
-
-
-def test_weighted_average_and_na():
-    rows = [
-        {
-            "scores": {
-                "inventory": 1.0,
-                "appearance": 0.5,
-                "spatial": 0.0,
-            }
-        },
-        {
-            "scores": {
-                "inventory": 0.0,
-                "appearance": 0.0,
-                "spatial": None,
-            }
-        },
-    ]
-    r = aggregate(rows, 1, {"inventory": 2, "appearance": 1, "spatial": 1})
-    assert r["metrics"] == {
-        "inventory": 0.5,
-        "appearance": 0.25,
-        "spatial": 0.0,
-    }
-    assert r["memory_score"] == 0.3125 and "state" not in r["effective_weights"]
-    assert (
-        aggregate([], 0)["memory_score"] == 0
-        and aggregate([], 0)["metrics"]["inventory"] is None
-    )
-    with pytest.raises(ValueError):
-        WeightConfig(inventory=0, appearance=0, spatial=0)
-
-
-@pytest.mark.parametrize("a,b", [(1, 8), (3, 8), (8, 2), (3, 5), (1, 1), (8, 8)])
-def test_short_clips_use_all_unique_frames_with_explicit_pairing(a, b):
-    gt = [Frame("gt", i, i, float(i * i)) for i in range(a)]
-    gen = [Frame("gen", i, i, float(i * 3)) for i in range(b)]
-    pairs = pair_frames(gt, gen)
-    assert len(pairs) == max(a, b)
-    for role, frames in [("gt", gt), ("generated", gen)]:
-        selected = [p[role].index for p in pairs]
-        assert selected == sorted(selected) and set(selected) == {
-            f.index for f in frames
-        }
-    assert len(uniform_frames(gt, 8)) == a
-
-
-def write_video(path, count):
-    with av.open(str(path), "w") as c:
-        s = c.add_stream("libx264", rate=30)
-        s.width = 96
-        s.height = 64
-        s.pix_fmt = "yuv420p"
-        for i in range(count):
-            f = av.VideoFrame.from_ndarray(
-                np.full((64, 96, 3), i * 7, np.uint8), format="rgb24"
-            )
-            for packet in s.encode(f):
-                c.mux(packet)
-        for packet in s.encode():
-            c.mux(packet)
+def make_video(path, times=None, size=(160, 80), color=(240, 20, 30)):
+    times = times or [i / 10 for i in range(21)]
+    with av.open(str(path), "w") as container:
+        stream = container.add_stream("libx264", rate=10)
+        stream.width, stream.height = size
+        stream.pix_fmt = "yuv420p"
+        stream.time_base = Fraction(1, 1000)
+        stream.codec_context.time_base = Fraction(1, 1000)
+        for timestamp in times:
+            frame = av.VideoFrame.from_image(Image.new("RGB", size, color))
+            frame.pts = round(timestamp * 1000)
+            frame.time_base = Fraction(1, 1000)
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
 
 
 @pytest.fixture
-def inputs(tmp_path):
-    for name, count in [("gt", 12), ("gen", 20), ("action", 10)]:
-        write_video(tmp_path / f"{name}.mp4", count)
-    a = {
-        "evaluation_case_id": "test",
-        "memory_target": "抽屉里的物体",
-        "read_action": "turn_view",
-        "action_description": "转动视角",
-        "success_criterion": "转向已打开的抽屉并看到内部",
+def case(tmp_path):
+    gt, gen = tmp_path / "gt.mp4", tmp_path / "gen.mp4"
+    make_video(gt)
+    make_video(gen, size=(80, 160))
+    return Case(
+        case_id="demo",
+        gt_video=str(gt),
+        gen_video=str(gen),
+        memory_target="red cup inside the drawer",
+        action_description="open drawer",
+        success_criterion="drawer open and interior visible",
+        read_start_seconds=1.0,
+    )
+
+
+def test_uniform_physical_alignment_and_padding(case, tmp_path):
+    gt_path, gen_path, data = make_sheets(case, tmp_path / "sheets")
+    assert len(data["frames"]) == 12
+    assert [f["time_seconds"] for f in data["frames"]] == pytest.approx(
+        [2 * i / 11 for i in range(12)]
+    )
+    assert data["read_frame_indices"] == list(range(7, 13))
+    assert all(
+        abs(f["gt_actual_seconds"] - f["gen_actual_seconds"]) < 1e-9
+        for f in data["frames"]
+    )
+    assert gt_path.name == "I_gt.jpg" and gen_path.name == "I_gen.jpg"
+    with Image.open(gt_path) as gt, Image.open(gen_path) as gen:
+        assert gt.size == gen.size == (2880, 748)
+        # First tile content starts at y=76. Wide source gets vertical padding;
+        # tall source gets horizontal padding. Neither is stretched.
+        assert max(gt.getpixel((240, 90))) < 50
+        assert gt.getpixel((240, 200))[0] > 200
+        assert max(gen.getpixel((20, 200))) < 50
+        assert gen.getpixel((240, 200))[0] > 200
+
+
+def test_offsets_unequal_duration_and_vfr(case, tmp_path):
+    # Different initial PTS are normalized independently; offsets refer to decoded local clocks.
+    make_video(Path(case.gt_video), times=[5 + i / 10 for i in range(31)])
+    make_video(Path(case.gen_video), times=[10 + i / 10 for i in range(41)])
+    adjusted = case.model_copy(
+        update={"gt_start_seconds": 0.5, "gen_start_seconds": 1.0}
+    )
+    _, _, data = make_sheets(adjusted, tmp_path / "offset")
+    assert data["shared_end_seconds"] == pytest.approx(2.5)
+    assert data["gen_uncovered_tail_seconds"] == pytest.approx(0.5)
+    assert data["frames"][0]["gt_frame_index"] == 5
+    assert data["frames"][0]["gen_frame_index"] == 10
+    assert data["frames"][-1]["gen_actual_seconds"] == pytest.approx(2.5)
+    # A large VFR gap must fail alignment rather than silently select distant frames.
+    make_video(Path(case.gen_video), times=[0.0, 0.1, 1.8, 2.0])
+    with pytest.raises(ValueError, match="cannot align"):
+        make_sheets(case, tmp_path / "vfr")
+
+
+def test_sparse_repeated_frames_and_read_coverage(case, tmp_path):
+    make_video(Path(case.gt_video), times=[0.0, 1.0])
+    make_video(Path(case.gen_video), times=[0.0, 1.0])
+    sparse = case.model_copy(update={"read_start_seconds": 0.0})
+    _, _, data = make_sheets(sparse, tmp_path / "sparse", max_skew_seconds=0.6)
+    assert data["gt_unique_frames"] == data["gen_unique_frames"] == 2
+    assert len(data["frames"]) == 12
+    narrow = case.model_copy(
+        update={"read_start_seconds": 0.41, "read_end_seconds": 0.42}
+    )
+    with pytest.raises(ValueError, match="misses the Read"):
+        make_sheets(narrow, tmp_path / "narrow")
+    outside = case.model_copy(update={"read_start_seconds": 3.0})
+    with pytest.raises(ValueError, match="within shared"):
+        make_sheets(outside, tmp_path / "outside")
+
+
+def inventory(pairs, assessable=True):
+    return Inventory(
+        region_assessable=assessable,
+        evidence=EVIDENCE,
+        objects=[
+            {
+                "object_id": str(i),
+                "description": "group",
+                "gt_count": gt,
+                "gen_count": gen,
+                "evidence": EVIDENCE,
+            }
+            for i, (gt, gen) in enumerate(pairs)
+        ],
+    )
+
+
+def test_inventory_counts_missing_spurious_and_normalization():
+    scores = score_inventory(inventory([(3, 1), (1, 2), (0, 1)]))
+    assert scores["object_presence"] == 1
+    assert scores["object_count"] == pytest.approx(5 / 18)
+    assert scores["missing_objects"] == scores["spurious_objects"] == 2
+    assert scores["precision"] == scores["recall"] == scores["f1"] == 0.5
+    assert scores["normalized"] == pytest.approx(16 / 27)
+    assert scores["score"] == pytest.approx(80 / 27)
+
+
+@pytest.mark.parametrize(
+    "pairs, expected", [([], 1), ([(0, 2)], 0), ([(2, 0)], 0), ([(2, 2)], 1)]
+)
+def test_empty_and_presence_conventions(pairs, expected):
+    assert score_inventory(inventory(pairs))["normalized"] == expected
+
+
+@pytest.mark.parametrize("pairs, assessable", [([(2, None)], True), ([], False)])
+def test_unresolved_inventory_is_not_silently_filtered(pairs, assessable):
+    assert score_inventory(inventory(pairs, assessable))["normalized"] is None
+
+
+@pytest.mark.parametrize(
+    "score,status",
+    [
+        (6, "scored"),
+        (-1, "scored"),
+        (3.0, "scored"),
+        (True, "scored"),
+        (None, "scored"),
+        (0, "not_applicable"),
+        (2, "insufficient_evidence"),
+    ],
+)
+def test_metric_contract_rejects_invalid_scores(score, status):
+    with pytest.raises(ValidationError):
+        Metric.model_validate(metric(score, status))
+
+
+def test_metric_evidence_read_only_and_optional_style():
+    data = replies()
+    judged = Appearance.model_validate(data["appearance"])
+    with pytest.raises(ValueError, match="Read"):
+        validate_evidence("appearance", judged, [12], False)
+    env = Environment.model_validate(data["environment"])
+    env.lighting_style = Metric.model_validate(metric())
+    with pytest.raises(ValueError, match="Disabled"):
+        validate_evidence("environment", env, [9, 12], False)
+
+
+def test_equal_dimension_weights_not_metric_count():
+    data = replies()
+    data["appearance"]["visual_appearance"] = metric(0)
+    judgments = {
+        "inventory": Inventory.model_validate(data["inventory"]),
+        "appearance": Appearance.model_validate(data["appearance"]),
+        "spatial": Spatial.model_validate(data["spatial"]),
+        "environment": Environment.model_validate(data["environment"]),
     }
-    p = tmp_path / "annotation.json"
-    p.write_text(json.dumps(a))
-    return [tmp_path / f"{n}.mp4" for n in ("gt", "gen", "action")] + [p]
+    result = score_memory(judgments)
+    assert result["memory_score"] == 0.875  # (1 + .5 + 1 + 1) / 4
+    judgments["spatial"].relative_spatial_relation = Metric.model_validate(
+        metric(None, "not_applicable")
+    )
+    assert score_memory(judgments)["memory_score"] == 0.875
+    judgments["spatial"].object_localization = Metric.model_validate(
+        metric(None, "insufficient_evidence")
+    )
+    assert score_memory(judgments)["memory_score"] is None
 
 
-class ScriptedAPI:
-    def __init__(self, gate=True, wrong=False, repair=False, failure=False):
-        self.gate = gate
-        self.wrong = wrong
-        self.repair = repair
-        self.failure = failure
+class MockService:
+    def __init__(self):
+        self.outputs = replies()
         self.calls = []
+        self.active = self.peak = 0
+        self.fail = None
+        self.invalid_once = None
 
-    def __call__(self, request):
+    async def __call__(self, request):
         body = json.loads(request.content)
         content = body["messages"][1]["content"]
-        text = content[0]["text"]
-        data = json.loads(
-            text.split("\nINPUT:\n")[1].split("\nREQUIRED JSON SCHEMA:\n")[0]
-        )
-        schema = json.loads(text.split("\nREQUIRED JSON SCHEMA:\n")[1])
-        task = schema["title"]
-        images = [x for x in content if x["type"] == "image_url"]
-        self.calls.append((task, len(images), data))
-        assert len(images) <= 8 and "MEMORY" in body["messages"][0]["content"]
-        if self.failure:
-            return httpx.Response(401, json={"error": "scripted"})
-        if self.repair and len(self.calls) == 1:
-            raw = {"wrong": "schema"}
-        elif task == "GateJudgment":
-            assert len(images) == 6 and data["annotation"]["read_action"] == "turn_view"
-            raw = {
-                "action_correct": self.gate,
-                "target_visible": self.gate,
-                "evidence_frame_ids": [data["requested_frames"][-1]["frame_id"]],
-                "reason": "观察动作序列",
-            }
+        prompt = content[0]["text"]
+        schema = json.loads(prompt.split("REQUIRED JSON SCHEMA:\n")[1])
+        first = next(iter(schema["properties"]))
+        dimension = {
+            "observability": "gate",
+            "region_assessable": "inventory",
+            "visual_appearance": "appearance",
+            "object_localization": "spatial",
+            "scene_structure": "environment",
+        }[first]
+        self.calls.append(dimension)
+        image_positions = [
+            i for i, value in enumerate(content) if value["type"] == "image_url"
+        ]
+        assert len(image_positions) == 2
+        assert content[image_positions[0] - 1]["text"] == "I_gt: GT REFERENCE"
+        assert content[image_positions[1] - 1]["text"] == "I_gen: GENERATED VIDEO"
+        assert "GT defines" in body["messages"][0]["content"]
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        await asyncio.sleep(0.01)
+        self.active -= 1
+        if self.fail == dimension:
+            return httpx.Response(400, text="Do not persist this provider error body")
+        if self.invalid_once == dimension:
+            self.invalid_once = None
+            response = "invalid JSON"
         else:
-            assert task == "PairJudgment" and len(images) == 2
-            raw = judgment(self.wrong)
+            response = json.dumps(self.outputs[dimension])
         return httpx.Response(
             200,
             json={
                 "choices": [
-                    {"message": {"content": json.dumps(raw)}, "finish_reason": "stop"}
-                ]
+                    {"finish_reason": "stop", "message": {"content": response}}
+                ],
+                "usage": {"total_tokens": 25},
             },
         )
 
 
-def run(inputs, tmp_path, api):
-    gt, gen, action, annotation = inputs
-    return evaluate(
-        gt,
-        gen,
-        Config(api=APIConfig(model="scripted", retries=1)),
-        tmp_path / "out",
-        action_path=action,
-        annotation_path=annotation,
-        transport=httpx.MockTransport(api),
-        progress=lambda _: None,
-    )
+def run_mock(case, output, service, concurrency=3, retries=0):
+    async def execute():
+        judge = Judge(
+            "https://mock.test/v1/chat/completions",
+            "mock-vlm",
+            "fake-secret",
+            concurrency=concurrency,
+            retries=retries,
+            transport=httpx.MockTransport(service),
+        )
+        try:
+            return await evaluate_case(case, judge, output)
+        finally:
+            await judge.close()
+
+    return asyncio.run(execute())
 
 
-def test_exact_new_protocol(inputs, tmp_path):
-    api = ScriptedAPI()
-    r = run(inputs, tmp_path, api)
-    assert r["framework_version"] == "2.1.0" and r["evaluated_frame_pairs"] == 8
-    assert [x[0] for x in api.calls] == ["GateJudgment"] + ["PairJudgment"] * 8
-    assert r["memory_score"] == 0.875 and len(r["selected_frames"]["gt_images"]) == 8
-    assert (tmp_path / "out/pairs/pair_08.json").exists()
+def test_gate_then_parallel_memory_calls_and_audit(case, tmp_path):
+    service = MockService()
+    result = run_mock(case, tmp_path / "passing", service)
+    assert result["status"] == "scored" and result["memory_score"] == 1
+    assert service.calls[0] == "gate" and sorted(service.calls[1:]) == [
+        "appearance",
+        "environment",
+        "inventory",
+        "spatial",
+    ]
+    assert service.peak == 3
+    record = json.loads((tmp_path / "passing/judges/inventory.json").read_text())
+    assert record["attempts"][0]["parsed"] == service.outputs["inventory"]
+    assert "fake-secret" not in json.dumps(record)
+    assert "base64" not in json.dumps(record)
 
 
-def test_gate_failure_skips_all_memory_queries(inputs, tmp_path):
-    api = ScriptedAPI(gate=False)
-    r = run(inputs, tmp_path, api)
+@pytest.mark.parametrize("label", ["observability", "action_following"])
+def test_gate_failure_skips_all_memory_judges(case, tmp_path, label):
+    service = MockService()
+    service.outputs["gate"][label]["label"] = 0
+    result = run_mock(case, tmp_path / label, service)
+    assert result["status"] == "gate_failed" and result["memory_score"] is None
+    assert service.calls == ["gate"]
+
+
+def test_api_failure_finishes_other_judges_and_does_not_score_zero(case, tmp_path):
+    service = MockService()
+    service.fail = "appearance"
+    result = run_mock(case, tmp_path / "error", service, retries=2)
+    assert result["status"] == "error" and result["memory_score"] is None
+    assert service.calls.count("appearance") == 1  # terminal 400, no retry
+    assert len(result["judgments"]) == 3
     assert (
-        r["memory_score"] == 0
-        and r["evaluated_frame_pairs"] == 0
-        and len(api.calls) == 1
+        "Do not persist" not in (tmp_path / "error/judges/appearance.json").read_text()
     )
 
 
-def test_reject_wrong_same_category_instances_in_full_pipeline(inputs, tmp_path):
-    r = run(inputs, tmp_path, ScriptedAPI(wrong=True))
-    assert r["memory_score"] == 0
+def test_invalid_json_retries_and_preserves_attempts(case, tmp_path):
+    service = MockService()
+    service.invalid_once = "inventory"
+    result = run_mock(case, tmp_path / "retry", service, retries=1)
+    assert result["status"] == "scored"
+    assert service.calls.count("inventory") == 2
+    record = json.loads((tmp_path / "retry/judges/inventory.json").read_text())
+    assert len(record["attempts"]) == 2 and "error" in record["attempts"][0]
 
 
-def test_json_repair_and_api_failure(inputs, tmp_path):
-    api = ScriptedAPI(repair=True)
-    r = run(inputs, tmp_path, api)
-    assert r["vlm_request_count"] == 10
+def test_global_concurrency_across_cases(case, tmp_path):
+    service = MockService()
 
+    async def execute():
+        judge = Judge(
+            "https://mock.test",
+            "mock",
+            concurrency=2,
+            transport=httpx.MockTransport(service),
+        )
+        try:
+            return await asyncio.gather(
+                evaluate_case(case, judge, tmp_path / "one"),
+                evaluate_case(case, judge, tmp_path / "two"),
+            )
+        finally:
+            await judge.close()
 
-def test_api_failure_is_error_not_zero(inputs, tmp_path):
-    with pytest.raises(EvaluationError, match="401"):
-        run(inputs, tmp_path, ScriptedAPI(failure=True))
-    r = json.loads((tmp_path / "out/result.json").read_text())
-    assert r["memory_score"] is None and r["status"] == "error"
-
-
-def test_max_eight_images_enforced_before_http(tmp_path):
-    client = VLM(
-        APIConfig(model="test"),
-        tmp_path,
-        transport=httpx.MockTransport(lambda _: pytest.fail("HTTP must not run")),
+    results = asyncio.run(execute())
+    assert all(result["status"] == "scored" for result in results)
+    assert service.peak == 2 and len(service.calls) == 10
+    summary = summarize(
+        results
+        + [
+            {
+                "status": "gate_failed",
+                "gate": {
+                    "observability": {"label": 0},
+                    "action_following": {"label": 1},
+                },
+            },
+            {"status": "error", "gate": None},
+        ]
     )
-    try:
-        with pytest.raises(ValueError, match="at most 8"):
-            client.ask("action_gate", {}, [("x", "missing")] * 9, GateJudgment)
-    finally:
-        client.close()
-    with pytest.raises(ValueError):
-        APIConfig(max_images_per_query=9)
-
-
-def test_action_crop_exact_half_open_interval(inputs, tmp_path):
-    out = tmp_path / "crop.mp4"
-    assert crop_video(inputs[1], out, 2, 8) == 6
-    with av.open(str(out)) as c:
-        assert len(list(c.decode(video=0))) == 6
-
-
-def test_visual_judgments_survive_llm_arithmetic_error():
-    raw = judgment()
-    raw["gt_objects"].append(raw["gt_objects"][0] | {"id": "o2"})
-    raw["appearance_items"].append(
-        {
-            "gt_id": "o2",
-            "score": 1,
-            "reason": "bad arithmetic: this unmatched object must count zero",
-        }
+    assert summary["scored_cases"] == 2 and summary["error_cases"] == 1
+    assert summary["gate_evaluated"] == 3 and summary[
+        "gate_pass_rate"
+    ] == pytest.approx(2 / 3)
+    assert (
+        summary["memory_score"] == 1
+        and summary["metrics"]["environment.lighting_style"]["n"] == 0
     )
-    raw["dimensions"]["inventory"]["score"] = 0.9
-    raw["dimensions"]["appearance"]["score"] = 1
-    scores, changes = score_pair(PairJudgment.model_validate(raw))
-    assert scores["inventory"] == pytest.approx(2 / 3) and scores["appearance"] == 0.375
-    assert len(changes) == 2
+
+
+def test_load_cases_paths_ids_and_duplicate_guard(case, tmp_path):
+    data = case.model_dump()
+    data.update(gt_video="gt.mp4", gen_video="gen.mp4")
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps([data]))
+    assert load_cases(path)[0].gt_video == str(tmp_path / "gt.mp4")
+    path.write_text(json.dumps([data, data]))
+    with pytest.raises(ValueError, match="unique"):
+        load_cases(path)
+    with pytest.raises(ValidationError):
+        Case.model_validate({**data, "case_id": "../unsafe"})
+
+
+def test_output_overwrite_refused(case, tmp_path):
+    output = tmp_path / "existing"
+    output.mkdir()
+    with pytest.raises(FileExistsError):
+        run_mock(case, output, MockService())
+
+
+def test_cli_input_error_writes_summary_and_exit_one(case, tmp_path, monkeypatch):
+    case_file = tmp_path / "cases.json"
+    data = case.model_dump()
+    data["read_start_seconds"] = 20.0
+    case_file.write_text(json.dumps([data]))
+    output = tmp_path / "cli"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "evaluation.run",
+            "--cases",
+            str(case_file),
+            "--endpoint",
+            "https://unused.test",
+            "--model",
+            "mock",
+            "--output",
+            str(output),
+        ],
+    )
+    assert main() == 1
+    summary = json.loads((output / "summary.json").read_text())
+    assert summary["error_cases"] == 1 and summary["memory_score"] is None
+
+
+@pytest.mark.parametrize("label", [True, False, 0.0, 1.0, "1", 2, -1])
+def test_gate_requires_strict_binary_integer(label):
+    data = replies()["gate"]
+    data["observability"]["label"] = label
+    with pytest.raises(ValidationError):
+        Gate.model_validate(data)
+
+
+def test_inventory_rejects_duplicate_and_empty_groups():
+    data = replies()["inventory"]
+    data["objects"].append(data["objects"][0].copy())
+    with pytest.raises(ValidationError, match="unique"):
+        Inventory.model_validate(data)
+    with pytest.raises(ValidationError, match="absent in both"):
+        inventory([(0, 0)])

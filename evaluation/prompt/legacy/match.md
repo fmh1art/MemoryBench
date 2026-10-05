@@ -1,8 +1,0 @@
-TASK: match objects by CATEGORY, then disambiguate same-category identities by stable APPEARANCE ONLY.
-No images, positions, relations, or mutable states are supplied on purpose. Never infer/use position or order in the input arrays as identity.
-First partition every GT and generated object into category_groups. Equivalent category synonyms can share a group, but do not merge different everyday object categories (e.g. cup and bottle). Each group contains category, gt_ids, gen_ids; every object occurs in exactly one group.
-Then produce one-to-one matches within category groups. Match the maximum possible number of objects within every group: min(number of GT objects, number of generated objects).
-If a category is present on both sides, differing color/state/position does NOT remove a category match. Those errors are scored separately.
-When several objects share a category, use color/shape/pattern/markings/material to preserve identity. A red cup moved from the left to the right still matches the red cup. Do not pair by list order to make positions agree.
-If identities cannot be distinguished using category/appearance (e.g. two identical cups), still produce maximum-cardinality matches using deterministic IDs, AND put every affected matched GT ID in ambiguous_gt_ids. The program will NOT give identity-dependent state/relation credit using this arbitrary mapping. Do not invent hidden distinguishing evidence or use position/state to resolve this ambiguity.
-Return category_groups, matches, and ambiguous_gt_ids (empty when identities are distinguishable); do not calculate a score.

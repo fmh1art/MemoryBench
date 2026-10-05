@@ -1,0 +1,15 @@
+[
+  {
+    "case_id": "drawer_demo",
+    "gt_video": "../data/example/gt_read.mp4",
+    "gen_video": "../data/example/gen_read.mp4",
+    "memory_target": "All objects inside the top desk drawer; exclude the drawer and desk themselves",
+    "action_description": "Open the top desk drawer and look at its contents",
+    "success_criterion": "The top drawer is open and its interior is visible",
+    "read_start_seconds": 2.0,
+    "read_end_seconds": null,
+    "gt_start_seconds": 0.0,
+    "gen_start_seconds": 0.0,
+    "lighting_style": false
+  }
+]

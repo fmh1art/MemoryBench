@@ -1,0 +1,232 @@
+"""One logical call per dimension; bounded concurrent requests and auditable retries."""
+
+import asyncio
+import base64
+import json
+from math import isfinite
+from pathlib import Path
+
+import httpx
+
+from .appearance.schema import Judgment as Appearance
+from .environment.schema import Judgment as Environment
+from .gate.schema import Judgment as Gate
+from .inventory.schema import Judgment as Inventory
+from .spatial.schema import Judgment as Spatial
+
+ROOT = Path(__file__).parent
+SCHEMAS = {
+    "gate": Gate,
+    "inventory": Inventory,
+    "appearance": Appearance,
+    "spatial": Spatial,
+    "environment": Environment,
+}
+
+
+def write_json(path: Path, value):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    )
+    temporary.replace(path)
+
+
+def validate_evidence(dimension, judgment, read_indices, lighting_style):
+    data = judgment.model_dump()
+
+    def walk(value, allowed):
+        if isinstance(value, dict):
+            if "frame_indices" in value and not set(value["frame_indices"]) <= allowed:
+                raise ValueError("Evidence must cite permitted Read frame indices")
+            for child in value.values():
+                walk(child, allowed)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child, allowed)
+
+    if dimension == "gate":
+        walk(data["observability"], set(read_indices))
+        walk(data["action_following"], set(range(1, 13)))
+    else:
+        walk(data, set(read_indices))
+    if (
+        dimension == "environment"
+        and not lighting_style
+        and judgment.lighting_style.status != "not_applicable"
+    ):
+        raise ValueError(
+            "Disabled lighting_style must be not_applicable with null score"
+        )
+
+
+class Judge:
+    def __init__(
+        self,
+        endpoint,
+        model,
+        api_key="",
+        concurrency=4,
+        timeout=240,
+        retries=2,
+        max_tokens=4096,
+        extra_body=None,
+        transport=None,
+    ):
+        if (
+            concurrency < 1
+            or retries < 0
+            or not isfinite(timeout)
+            or timeout <= 0
+            or max_tokens < 1
+        ):
+            raise ValueError("Invalid judge concurrency/retries/timeout/max_tokens")
+        extra_body = extra_body or {}
+        reserved = {
+            "model",
+            "messages",
+            "stream",
+            "response_format",
+            "temperature",
+            "max_tokens",
+        }
+        if reserved & extra_body.keys():
+            raise ValueError(
+                f"extra_body cannot override {sorted(reserved & extra_body.keys())}"
+            )
+        self.endpoint, self.model, self.api_key = endpoint, model, api_key
+        self.retries, self.max_tokens, self.extra_body = retries, max_tokens, extra_body
+        self.limit = asyncio.Semaphore(concurrency)
+        self.client = httpx.AsyncClient(
+            timeout=timeout, trust_env=False, transport=transport
+        )
+        self.common = (ROOT / "common.md").read_text()
+        self.rubrics = {
+            dimension: (ROOT / dimension / "rubric.md").read_text()
+            for dimension in SCHEMAS
+        }
+
+    async def close(self):
+        await self.client.aclose()
+
+    async def ask(self, dimension, context, images, output: Path):
+        schema = SCHEMAS[dimension]
+        prompt = (
+            self.rubrics[dimension]
+            + "\nCASE AND SAMPLING:\n"
+            + json.dumps(context, ensure_ascii=False)
+            + "\nREQUIRED JSON SCHEMA:\n"
+            + json.dumps(schema.model_json_schema(), ensure_ascii=False)
+        )
+        content = [{"type": "text", "text": prompt}]
+        for label, path in zip(
+            ("I_gt: GT REFERENCE", "I_gen: GENERATED VIDEO"), images
+        ):
+            content.extend(
+                [
+                    {"type": "text", "text": label},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "detail": "high",
+                            "url": "data:image/jpeg;base64,"
+                            + base64.b64encode(path.read_bytes()).decode(),
+                        },
+                    },
+                ]
+            )
+        record = {
+            "dimension": dimension,
+            "model": self.model,
+            "common_rubric": self.common,
+            "rubric": self.rubrics[dimension],
+            "schema": schema.model_json_schema(),
+            "context": context,
+            "images": [
+                {"label": label, "path": str(path)}
+                for label, path in zip(("I_gt", "I_gen"), images)
+            ],
+            "max_tokens": self.max_tokens,
+            "temperature": 0,
+            "attempts": [],
+        }
+        repair = ""
+        for attempt in range(self.retries + 1):
+            body = {
+                "model": self.model,
+                "temperature": 0,
+                "max_tokens": self.max_tokens,
+                "stream": False,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": self.common},
+                    {
+                        "role": "user",
+                        "content": content
+                        + ([{"type": "text", "text": repair}] if repair else []),
+                    },
+                ],
+                **self.extra_body,
+            }
+            event = {"attempt": attempt + 1}
+            retryable = True
+            try:
+                headers = (
+                    {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+                )
+                async with self.limit:
+                    response = await self.client.post(
+                        self.endpoint, json=body, headers=headers
+                    )
+                event["http_status"] = response.status_code
+                if response.status_code != 200:
+                    retryable = (
+                        response.status_code in (408, 429)
+                        or response.status_code >= 500
+                    )
+                    raise ValueError(f"VLM HTTP {response.status_code}")
+                payload = response.json()
+                event["usage"] = payload.get("usage")
+                choice = payload["choices"][0]
+                raw = choice["message"]["content"]
+                event["response_text"] = raw
+                event["finish_reason"] = choice.get("finish_reason")
+                if choice.get("finish_reason") == "length":
+                    raise ValueError("Response truncated; increase --max-tokens")
+                # Strict JSON is intentional: invalid outputs are retried, never assigned zero.
+                judgment = schema.model_validate_json(raw)
+                validate_evidence(
+                    dimension,
+                    judgment,
+                    context["sampling"]["read_frame_indices"],
+                    context["case"]["lighting_style"],
+                )
+                event["parsed"] = judgment.model_dump()
+                record["attempts"].append(event)
+                write_json(output / f"{dimension}.json", record)
+                return judgment
+            except (
+                httpx.HTTPError,
+                ValueError,
+                TypeError,
+                KeyError,
+                IndexError,
+            ) as exc:
+                detail = (
+                    type(exc).__name__ if isinstance(exc, httpx.HTTPError) else str(exc)
+                )
+                if self.api_key:
+                    detail = detail.replace(self.api_key, "[REDACTED]")
+                event["error"] = detail[:2000]
+                record["attempts"].append(event)
+                write_json(output / f"{dimension}.json", record)
+                if not retryable or attempt == self.retries:
+                    raise RuntimeError(
+                        f"{dimension} judge failed: {event['error']}"
+                    ) from None
+                repair = (
+                    "Previous response failed validation. Return corrected JSON. Error: "
+                    + detail[:1000]
+                )
+                await asyncio.sleep(min(2**attempt, 4))
+        raise RuntimeError("Unreachable judge state")
