@@ -9,8 +9,15 @@ from pathlib import Path
 
 from .judge import Judge, write_json
 from .schema import Case
-from .scoring import MEMORY_DIMENSIONS, score_memory, summarize
-from .video import make_sheets
+from .scoring import (
+    MEMORY_DIMENSIONS,
+    METRIC_NAMES,
+    average_memory_frames,
+    score_memory,
+    select_metrics,
+    summarize,
+)
+from .video import make_memory_pairs, make_sheets
 
 
 def load_cases(path: Path) -> list[Case]:
@@ -36,7 +43,18 @@ async def evaluate_case(
     tile_height=320,
     max_skew_seconds=0.1,
     resume=False,
+    selected_metrics=None,
 ):
+    selected_metrics = (
+        select_metrics(metrics=selected_metrics)
+        if selected_metrics is not None
+        else select_metrics()
+    )
+    dimensions = tuple(
+        dim
+        for dim in MEMORY_DIMENSIONS
+        if any(key.startswith(dim + ".") for key in selected_metrics)
+    )
     output.mkdir(parents=True, exist_ok=resume)
     calls = output / "judges"
     calls.mkdir(exist_ok=resume)
@@ -46,6 +64,8 @@ async def evaluate_case(
         "status": "error",
         "gate": None,
         "memory_score": None,
+        "protocol": "memory_evaluation.frame_pairs.v2",
+        "selected_metrics": list(selected_metrics),
     }
     try:
         gt_image, gen_image, sampling = await asyncio.to_thread(
@@ -61,30 +81,80 @@ async def evaluate_case(
         if not passed:
             result["status"] = "gate_failed"
         else:
-            # All four finish/log even if one fails; no partial result becomes a valid score.
-            replies = await asyncio.gather(
-                *(judge.ask(dim, context, images, calls) for dim in MEMORY_DIMENSIONS),
-                return_exceptions=True,
+            memory_sampling = await asyncio.to_thread(
+                make_memory_pairs, case, output, sampling
             )
+            result["memory_sampling"] = memory_sampling
+            write_json(output / "memory_sampling.json", memory_sampling)
+
+            async def evaluate_frame(frame):
+                index = frame["frame_index"]
+                frame_calls = calls / f"frame_{index}"
+                frame_calls.mkdir(exist_ok=resume)
+                frame_context = {
+                    "case": case.model_dump(),
+                    "selected_metrics": list(selected_metrics),
+                    "memory_frame": frame,
+                    "sampling": {"read_frame_indices": [index], "frames": [frame]},
+                }
+                images = tuple(
+                    output / "memory_frames" / f"{index}_{role}.jpg"
+                    for role in ("gt", "gen")
+                )
+                replies = await asyncio.gather(
+                    *(
+                        judge.ask(dim, frame_context, images, frame_calls)
+                        for dim in dimensions
+                    ),
+                    return_exceptions=True,
+                )
+                errors = {
+                    dim: str(reply)
+                    for dim, reply in zip(dimensions, replies)
+                    if isinstance(reply, Exception)
+                }
+                frame_result = {
+                    **frame,
+                    "status": "error",
+                    "memory_score": None,
+                    "judgments": {
+                        dim: reply.model_dump()
+                        for dim, reply in zip(dimensions, replies)
+                        if not isinstance(reply, Exception)
+                    },
+                }
+                if errors:
+                    frame_result["errors"] = errors
+                else:
+                    scores = score_memory(
+                        dict(zip(dimensions, replies)), selected_metrics
+                    )
+                    frame_result.update(
+                        status=scores["status"],
+                        memory_score=scores["memory_score"],
+                        scores=scores,
+                    )
+                return frame_result
+
+            frames = await asyncio.gather(
+                *(evaluate_frame(frame) for frame in memory_sampling["frames"])
+            )
+            result["memory_frames"] = frames
             errors = {
-                dim: str(reply)
-                for dim, reply in zip(MEMORY_DIMENSIONS, replies)
-                if isinstance(reply, Exception)
-            }
-            result["judgments"] = {
-                dim: reply.model_dump()
-                for dim, reply in zip(MEMORY_DIMENSIONS, replies)
-                if not isinstance(reply, Exception)
+                f"frame_{frame['frame_index']}": frame["errors"]
+                for frame in frames
+                if frame["status"] == "error"
             }
             if errors:
                 result["errors"] = errors
             else:
-                scores = score_memory(dict(zip(MEMORY_DIMENSIONS, replies)))
+                scores = average_memory_frames(frames)
                 result.update(
                     status=scores["status"],
                     memory_score=scores["memory_score"],
                     scores=scores,
                 )
+
     except Exception as exc:  # noqa: BLE001 -- persist isolated case failures; keep batch running
         result["error"] = str(exc)
     write_json(output / "result.json", result)
@@ -97,6 +167,7 @@ async def evaluate_case(
 
 async def run(args):
     cases = load_cases(args.cases)
+    selected_metrics = select_metrics(args.dimensions, args.metrics)
     extra_body = json.loads(args.extra_body.read_text()) if args.extra_body else {}
     if not isinstance(extra_body, dict):
         raise ValueError("--extra-body must contain a JSON object")  # noqa: TRY004 -- CLI input error
@@ -120,7 +191,10 @@ async def run(args):
         write_json(
             args.output / "run.json",
             {
-                "protocol": "memory_evaluation.contact_sheets.v1",
+                "protocol": "memory_evaluation.frame_pairs.v2",
+                "selected_metrics": list(selected_metrics),
+                "memory_sampling_fractions": [0.2, 0.4, 0.6, 0.8],
+                "memory_image_max_side": 1024,
                 "model": args.model,
                 "concurrency": args.concurrency,
                 "case_workers": args.case_workers,
@@ -148,6 +222,7 @@ async def run(args):
                     tile_width=args.tile_width,
                     tile_height=args.tile_height,
                     max_skew_seconds=args.max_skew_seconds,
+                    selected_metrics=selected_metrics,
                 )
 
         results = await asyncio.gather(*(one(case) for case in cases))
@@ -218,6 +293,19 @@ def main():
         type=positive_int,
         default=20000,
         help="Conservative input+output token reservation for TPM pacing",
+    )
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--dimensions",
+        nargs="+",
+        choices=MEMORY_DIMENSIONS,
+        help="Enabled memory dimensions; default: inventory appearance spatial",
+    )
+    selection.add_argument(
+        "--metrics",
+        nargs="+",
+        choices=METRIC_NAMES,
+        help="Only these submetrics; overrides dimension defaults",
     )
     parser.add_argument("--tile-width", type=positive_int, default=480)
     parser.add_argument("--tile-height", type=positive_int, default=320)

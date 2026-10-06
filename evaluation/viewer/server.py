@@ -47,6 +47,7 @@ class Catalog:
         run_path = self.root / "run.json"
         run = json.loads(run_path.read_text()) if run_path.exists() else {}
         self.model = run.get("model", "VLM")
+        self.protocol = run.get("protocol", "memory_evaluation.contact_sheets.v1")
 
     def media(self, case_id, kind):
         result = self.results.get(case_id)
@@ -59,6 +60,9 @@ class Catalog:
             "gt_video": Path(result["case"]["gt_video"]),
             "gen_video": Path(result["case"]["gen_video"]),
         }
+        match = re.fullmatch(r"(gt|gen)_frame_([1-4])", kind)
+        if match and result.get("memory_sampling"):
+            paths[kind] = directory / "memory_frames" / f"{match[2]}_{match[1]}.jpg"
         path = paths.get(kind)
         return path if path is not None and path.is_file() else None
 
@@ -152,6 +156,7 @@ def handler_for(catalog):
                     self.json(
                         {
                             "model": catalog.model,
+                            "protocol": catalog.protocol,
                             "summary": catalog.summary,
                             "cases": catalog.cases,
                         },

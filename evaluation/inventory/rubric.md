@@ -1,4 +1,4 @@
-Annotate inventory semantics once. I_gt is the GT reference; I_gen is the generated video.
+Annotate inventory semantics for THIS single-frame pair only. I_gt is the GT reference; I_gen is the generated video.
 Do NOT calculate scores, ratios, precision/recall, or totals of missing/spurious objects.
 The evaluator computes those from your annotations.
 
@@ -16,8 +16,8 @@ not create a missing-plus-spurious identity pair when semantic identity is recov
 changes belong to Appearance. When identity truly cannot be established, use null counts and explain.
 
 For each group:
-- Count physical objects in the Read state, never appearances summed over frames.
-- Use multiple Read views to disambiguate occlusion and duplicates. Do not count reflections,
+- Count visible physical objects in this pair, never objects inferred from other timestamps.
+- Use only this pair; unresolved occlusion requires null counts. Do not count reflections,
   printed images, shadows, hands or visual fragments as additional objects.
 - gt_count > 0 and gen_count = 0 means a reference group is absent from a clearly inspected Gen region.
 - gt_count = 0 and gen_count > 0 means an unexpected group, after confirming GT absence in that region.
@@ -27,15 +27,11 @@ For each group:
 - Use integer counts >=0 when reliably visible. Use null for an unresolvable count, never an estimate
   or an inferred hidden object. region_assessable=false when the region cannot support inventory.
 
-Object groups must be mutually exclusive and collectively cover the scoped inventory in either
-video. Use the latest corresponding Read frame pair where the scoped region is reliably inspectable
-in both videos as the inventory snapshot; identify that frame in overall evidence. Adjacent views
-may disambiguate identities/occlusion, but do not mix counts from different world states. If visibility
-requires multiple views, establish the latest recoverable state and cite those supporting views.
-Keep reference identities stable through time; describe any genuine GT changes and any clear Gen
-object disappearance/duplication across Read. Observable Gen changes are memory errors, not grounds
-for region_assessable=false: use the selected snapshot counts and document temporal variation.
-Only actual visibility/identity/count uncertainty warrants null counts or an unassessable region.
+Object groups must be mutually exclusive and collectively cover the scoped visible inventory in
+either image. This pair is the sole snapshot: do not select a different timestamp, infer hidden
+objects from the case description, or use adjacent views. An uninspectable target region gives
+region_assessable=false. Counts are null when visibility/identity is genuinely unresolved. A
+clearly visible Gen region with missing objects is assessable and must retain zero Gen counts.
 
-Provide evidence for every group and the overall region assessment, citing Read frame numbers
+Provide evidence for every group and the overall region assessment, citing the supplied memory_frame.frame_index
 and concrete GT/Gen observations. No numeric quality score belongs in this response.

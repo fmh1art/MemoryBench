@@ -1,9 +1,9 @@
 # Memory Evaluation
 
 A reference-based evaluation of the world state recovered after a memory Read.
-Each case needs **GT video + Gen video + a short case description**. There are five
-logical VLM judgments: one Gate, followed by four concurrent memory judgments when Gate passes.
-No detectors, trackers, per-frame judge loops, separate action clip, or model inference adapters.
+Each case needs **GT video + Gen video + a short case description**. Gate uses one query with two 12-frame sheets. When both binary labels pass, Memory uses four
+independent GT/Gen single-frame pairs from the middle 60% of the shared video. Each enabled
+dimension gets one query per pair; four scores are averaged. Environment is disabled by default.
 
 ## Files
 
@@ -15,9 +15,10 @@ evaluation/
   spatial/       schema.py + rubric.md: Object Localization, Relative Spatial Relation (0–5)
   environment/   schema.py + rubric.md: Scene Structure, Background Appearance,
                                        optional Lighting / Style (0–5)
-  common.md      shared reference/evidence rules
+  common.md      Gate contact-sheet reference/evidence rules
+  memory_common.md single-pair reference/evidence rules
   schema.py      case, evidence and metric contracts
-  video.py       aligned sampling and independent 2×6 images
+  video.py       aligned Gate sheets and four independent Memory image pairs
   judge.py       asynchronous VLM client, validation, retries and call records
   scoring.py     normalization and aggregation
   run.py         single/batch CLI
@@ -51,17 +52,39 @@ to that JSON file. IDs must be unique and safe directory names. Output must be a
 Credentials come from the environment and are never written into configuration snapshots.
 The service must support multimodal chat-completions, inline JPEGs and `response_format=json_object`.
 Responses are validated locally against Pydantic schemas, including integer scores and evidence frames.
+Unselected submetrics are absent from the response schema and do not affect averages.
 `--extra-body provider.json` allows provider-specific options, e.g.
 `{"chat_template_kwargs":{"enable_thinking":false}}`; it cannot replace prompts, model or JSON mode.
 The old TOML configuration/old evaluation commands are no longer used.
 
 `--concurrency` bounds all in-flight VLM requests across cases, including Gate and retries.
-`--case-workers` bounds simultaneous cases and video preparation. Within a passing case, Inventory,
-Appearance, Spatial and Environment run concurrently. By default each dimension gets one request;
+`--case-workers` bounds simultaneous cases and video preparation. Within a passing case, the four pairs and their enabled dimension Judges run concurrently.
+Defaults are Inventory, Appearance and Spatial: 1 Gate + 4×3 Memory requests per passing case;
 transport, JSON or schema failures allow up to `--retries` additional attempts (default 2).
 Every attempt is recorded. HTTP 4xx errors other than 408/429 fail immediately. An evaluation error
 sets the case status to `error` and makes the CLI exit 1 after other cases finish; gate rejection or
 insufficient visual evidence is a valid evaluation outcome and does not cause exit 1.
+
+## Select dimensions or submetrics
+
+Default: Inventory, Appearance and Spatial; Environment makes no calls and contributes no score.
+Choose whole dimensions with `--dimensions`, or exact submetrics with `--metrics` (mutually exclusive):
+
+```bash
+# Append to the run command to enable Environment explicitly.
+--dimensions inventory appearance spatial environment
+
+# Judge only these two submetrics, one query per dimension per pair.
+--metrics appearance.visual_appearance spatial.relative_spatial_relation
+```
+
+Available submetrics: inventory.object_presence, inventory.object_count, inventory.f1;
+appearance.visual_appearance, appearance.geometry_shape;
+spatial.object_localization, spatial.relative_spatial_relation;
+environment.scene_structure, environment.background_appearance, environment.lighting_style.
+Inventory always needs semantic object counts; Python computes its diagnostics and averages only
+the selected Inventory submetrics. Lighting/style additionally needs `lighting_style=true` in the
+case; otherwise it remains not_applicable. Selection is recorded in run.json and every result.
 
 ## Case description and timeline
 
@@ -81,7 +104,7 @@ to experiment t=0. Defaults are both zero. Each video's local clock is decoded P
 frame PTS. Offsets align known clip starts; **do not independently normalize video duration**.
 If the clips share the same physical start, leave both offsets zero.
 
-## Two images, twelve aligned frames
+## Gate: two images, twelve aligned frames
 
 1. Decode timestamps and determine the common interval from experiment t=0 to the earlier last frame.
 2. Request 12 uniformly spaced times, including both endpoints, on this shared physical timeline.
@@ -91,8 +114,8 @@ If the clips share the same physical start, leave both offsets zero.
 4. Compose independent I_gt.jpg and I_gen.jpg, each 2 rows × 6 columns, in chronological order.
    Every tile shows frame number, shared requested t and actual decoded frame time. Resize with
    aspect ratio preserved and center-pad; never stretch. Default content tile is 480×320.
-5. Pass both images independently to each judge. Explicit Read frame indices identify which tiles
-   supply memory evidence. Gate's Action Following may cite any frame; all other evidence is Read-only.
+5. Pass both images to the single Gate query. Observability evidence cites Read tiles; Action
+   Following may cite any tile. Both labels must be 1 before any Memory images or calls are made.
 
 A timestamp request need not coincide exactly with a real frame at another frame rate; both the
 small tolerance and actual times are recorded. A short/sparse clip can repeat the same real frame;
@@ -102,6 +125,24 @@ Read interval lies outside overlap or uniform sampling misses it, the case fails
 With only 12 views, unobserved temporal failures cannot be assessed; use clips covering the relevant
 Read operation and state, and retain this sampling protocol when comparing models.
 
+## Memory: four independent image pairs
+
+Request frames at **20%, 40%, 60%, 80%** of the entire shared video interval used by Gate, including
+the endpoints of its middle 60%. This is not an independently stretched per-video clock or the
+middle 60% of the Read interval. Record requested and actual timestamps, decoded indices and whether
+each sample lies in Read. The same alignment tolerance applies as for Gate.
+
+Save eight standalone JPEGs. Each preserves the decoded image's aspect ratio; cap its longest side
+at 1024 pixels without upscaling or stretching. No sheets, borders, timestamp overlays or additional
+views are included in Memory queries. Timestamp/index labels are supplied as text metadata.
+
+Judge each pair independently against GT with the enabled dimension rubrics. Memory evidence must
+cite only that pair's index (1–4), a separate index space from Gate's sheet tiles (1–12). Never use
+another pair to resolve occlusion or infer a hidden object. A global Gate pass does not guarantee
+that every single sampled view can resolve every submetric. A sample before Read or with an
+uninspectable target can therefore return insufficient_evidence, with its images and explanation
+retained for review. Samples are never silently moved to a more convenient timestamp.
+
 ## Judgments and evidence
 
 Gate outputs independent 0/1 labels. It passes only when both Observability and Action Following
@@ -109,10 +150,10 @@ are 1. A visible empty Gen region can pass: object absence is a memory error. A 
 memory score, and no memory judges run. Report Gate pass rates separately from conditional memory scores.
 
 Inventory returns mutually exclusive semantic object groups, reference/generated integer counts,
-and evidence. It never returns numeric quality scores. Null counts or an unassessable region leave
-Inventory unscored; do not silently drop unknown groups. Counts describe the latest reliably inspectable shared Read state (identified in evidence),
-with adjacent views supporting identity/occlusion; they are not summed frame appearances. Observable
-Gen disappearance/duplication is documented as drift rather than dismissed as visibility uncertainty. Attribute drift alone should not manufacture missing-plus-spurious identities.
+and evidence for this pair. It never returns numeric quality scores. Null counts or an unassessable
+region leave Inventory unscored; do not silently drop unknown groups. Counts are physical visible
+objects in this single snapshot. Attribute drift alone should not manufacture missing-plus-spurious
+identities; no adjacent-view evidence or counting across timestamps is allowed.
 
 Other metrics output `{status, score, evidence}`. Each rubric defines specific anchors for every
 integer 0–5. `scored` requires an integer; `not_applicable` and `insufficient_evidence` require null.
@@ -121,8 +162,8 @@ stable world anchors and tolerate small camera differences. Environment explicit
 targets. Lighting / Style is disabled unless lighting_style=true; a disabled metric is not_applicable.
 
 Every decision and metric, every inventory group, and the overall inventory assessment provide
-frame-index evidence describing concrete GT/Gen facts. The paired timestamps for those indices are
-saved in sampling.json. The response validator rejects memory evidence citing pre-Read frames.
+frame-index evidence describing concrete GT/Gen facts. Gate timestamps are saved in sampling.json; Memory timestamps in memory_sampling.json. The
+response validator rejects Memory evidence citing any pair other than the one supplied.
 
 ## Deterministic scores
 
@@ -148,15 +189,19 @@ If both regions are visibly empty, Presence/Count/Precision/Recall/F1 all equal 
 Gen is not, Presence/Count/F1/Precision are 0 and Recall is 1. If GT is nonempty and Gen empty,
 Presence/Count/F1/Precision/Recall are 0. These conventions make correct empty restoration score 1.
 
-Other metric scores normalize as score/5. Average applicable submetrics within each dimension;
-average applicable dimensions with equal weights for the case memory score. Optional lighting/style,
-when enabled, participates equally within Environment. `not_applicable` is excluded with its status
-retained. Any `insufficient_evidence` metric makes the case memory score null; any failed judge makes
+Other metric scores normalize as score/5. Within each pair, average selected applicable submetrics
+within a dimension, then average selected applicable dimensions with equal weights.
+The final case score is the arithmetic mean of all **four** pair scores; final dimension/submetric
+scores are also four-pair means. This keeps each timestamp equally weighted. Optional lighting/style,
+when enabled, participates equally within Environment. A submetric not_applicable in all four views stays excluded with its status retained. A mixture
+of scored and not_applicable views cannot produce a four-score mean and is marked insufficient_evidence. Any `insufficient_evidence` metric makes the case memory score null; any failed judge makes
 it an evaluation error. Partial dimension results remain available for inspection, but cannot inflate
 the headline score by selecting only easy observations.
 
 Batch summaries are macro means over complete `scored` cases only, with per-dimension/per-metric
-sample counts. Inventory ratios use the same cases; missing/spurious totals are also reported.
+sample counts. Inventory ratios use the same cases. Missing/spurious counts are computed per
+frame, averaged over four frames per case, then summed across complete cases in the summary;
+this is explicitly labeled as a sum of per-case mean counts, not a count of distinct physical objects.
 Gate pass rates use cases with a valid Gate result; errors before/during Gate are separately counted.
 Always report total cases, gate_evaluated, gate_passed, scored_cases, insufficient_evidence_cases,
 and error_cases alongside memory_score. Never replace excluded cases with zero or compare conditional
@@ -169,14 +214,17 @@ run_001/
   run.json                  protocol, model, execution settings and cases
   summary.json              Gate rates, conditional memory means and denominators
   drawer_demo/
-    I_gt.jpg, I_gen.jpg      independent image inputs
-    sampling.json           shared/actual timestamps, Read indices, skew and coverage
+    I_gt.jpg, I_gen.jpg      Gate-only 12-frame sheets
+    sampling.json           Gate timeline, Read indices and coverage
+    memory_sampling.json    four aligned timestamps (absent if Gate fails)
+    memory_frames/          1_gt.jpg, 1_gen.jpg, ... 4_gt.jpg, 4_gen.jpg
     judges/
-      gate.json             prompt/schema/context, raw response, parsed output, usage, attempts
-      inventory.json        same; absent if Gate fails
-      appearance.json
-      spatial.json
-      environment.json
+      gate.json             one binary Gate call, prompt/schema/usage/all attempts
+      frame_1/              enabled dimension records for pair #1
+        inventory.json      absent when Inventory is disabled
+        appearance.json
+        spatial.json
+      frame_2/ ... frame_4/  independent calls; Environment only when enabled
     result.json             status, evidence-bearing judgments, derived scores/errors
 ```
 
@@ -222,14 +270,15 @@ library and serves the paired videos referenced by each `result.json`.
 
 ```bash
 python -m evaluation.viewer.server \
-  --results /home/fanmeihao/data/acwm/eval_results/_evaluation/terra_full_20261006 \
+  --results /home/fanmeihao/data/acwm/eval_results/_evaluation/terra_frames4_pilot10_20261006 \
   --port 8765
 ```
 
 Open <http://127.0.0.1:8765>. Search cases or targets, filter by category/status, and sort by Memory
-score. Each case shows the two timestamp-aligned 12-frame sheets, five normalized score cards,
-raw 0–5 submetric scores, Inventory counts/missing/spurious totals, Gate labels and expandable
-Judge evidence. Click an evidence frame number to open the paired frame crops. Use the video tab
+score. Each v2 case shows the four standalone image pairs and their individual scores, the four-frame
+average scores and raw submetric means. Select a frame to inspect its Inventory counts, 0–5
+Judge scores and evidence. Disabled dimensions say so. Gate uses a separate 12-frame sheet tab;
+Gate evidence indices are never treated as Memory pair indices. Legacy v1 outputs remain supported. Use the video tab
 for synchronized playback/seek, or expand the sheets at their original resolution. Case URLs
 include a shareable `#case_id` fragment. Gate failures and insufficient evidence retain their
 status and null overall score.

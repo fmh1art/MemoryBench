@@ -1,4 +1,4 @@
-Score two aspects of remembered target objects in the Read frames. I_gt is the GT reference;
+Score two aspects of remembered target objects in this single-frame pair. I_gt is the GT reference;
 I_gen is the generated video. Judge restoration fidelity, never beauty or photorealism.
 
 Match target identities semantically before comparing attributes. For multiple targets, score
@@ -6,10 +6,10 @@ across all relevant targets, considering extent and salience; do not select only
 objects. A wholly missing target in a clearly visible region receives 0 on both metrics; partial
 loss reduces scores according to how much reference content is lost. Keep failures attributable:
 extra unrelated objects do not directly lower Appearance unless they corrupt/replace the target.
-Use evidence from enough Read views to distinguish a stable defect from viewpoint or occlusion.
+Only this pair is available. Explain viewpoint/occlusion uncertainty without assuming other views.
 
 **Visual Appearance: color, texture, material, pattern and distinctive markings.**
-- 5: All assessable identity-bearing attributes match GT across Read views; negligible rendering noise.
+- 5: All assessable identity-bearing attributes match GT in this pair; negligible rendering noise.
 - 4: Small hue/texture/detail drift on a limited area; distinctive identity remains intact.
 - 3: Clear moderate attribute errors, e.g. a noticeable color shift or simplified pattern, while
   substantial target appearance remains faithful.
@@ -18,7 +18,7 @@ Use evidence from enough Read views to distinguish a stable defect from viewpoin
 - 0: Target absent, substituted with unrelated appearance, or effectively all assessable attributes wrong.
 Compare surface properties under plausible illumination, not raw pixel brightness. Different shadows,
 exposure or rendering sharpness alone are not surface-attribute failures. Material identity may use
-consistent highlights across views, but do not infer invisible texture detail from the description.
+consistent highlights in this pair, but do not infer invisible texture detail from the description.
 
 **Geometry / Shape: shape, proportions, parts and structural integrity.**
 - 5: Silhouette, proportions and visible parts/structure faithfully match GT.
@@ -33,5 +33,5 @@ errors when object count/identity is still clear.
 
 Return visual_appearance and geometry_shape as Metric records. Use insufficient_evidence/null for
 attributes or shape genuinely unresolvable in GT/Gen, with a visibility explanation; not_applicable/null
-only if GT has no target object to compare. Each record needs Read evidence specifying matched or
+only if GT has no target object to compare. Each record needs single-pair evidence specifying matched or
 changed attributes/parts and the affected targets.

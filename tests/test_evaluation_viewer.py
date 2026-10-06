@@ -107,3 +107,18 @@ def test_catalog_rejects_case_identity_mismatch(viewer):
     (root / "drawer_1_0" / "result.json").write_text(json.dumps(result))
     with pytest.raises(ValueError, match="Invalid case identity"):
         Catalog(root)
+
+
+def test_memory_frame_media_is_limited_to_four_known_pairs(viewer):
+    client, root, result = viewer
+    directory = root / "drawer_1_0"
+    (directory / "memory_frames").mkdir()
+    (directory / "memory_frames/1_gt.jpg").write_bytes(b"frame-reference")
+    result["memory_sampling"] = {"frames": [{"frame_index": 1}]}
+    (directory / "result.json").write_text(json.dumps(result))
+    # Existing catalog snapshots remain immutable; the new protocol is loaded at restart.
+    catalog = Catalog(root)
+    assert catalog.media("drawer_1_0", "gt_frame_1").read_bytes() == b"frame-reference"
+    assert catalog.media("drawer_1_0", "gt_frame_5") is None
+    assert catalog.media("drawer_1_0", "gt_frame_../reference") is None
+    assert client.get("/media/drawer_1_0/gt_frame_1").status_code == 404

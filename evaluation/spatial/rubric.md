@@ -1,4 +1,4 @@
-Score target placement and relations during Read. I_gt is the GT world-state reference;
+Score target placement and relations in this single-frame pair. I_gt is the GT world-state reference;
 I_gen is the generated video. Do not score aesthetic composition. Do not over-penalize camera error.
 
 Reason in scene coordinates using stable anchors: drawer interior, shelf compartment, tabletop,
@@ -33,7 +33,7 @@ Prioritize categorical topology (inside vs outside, on vs floating, correct comp
 metric offsets. Contradicting one essential containment/support relation can justify a major penalty
 when it is the defining memory fact; explain its significance in evidence.
 
-Return object_localization and relative_spatial_relation as Metric records with Read evidence naming
+Return object_localization and relative_spatial_relation as Metric records with single-pair evidence naming
 targets, anchors and relations. If GT defines no assessable relation, use not_applicable/null for that
 metric. If an existing fact cannot be resolved because of visibility/projection, use
 insufficient_evidence/null. Missing targets in observable regions are scored failures, not exclusions.

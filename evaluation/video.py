@@ -1,4 +1,4 @@
-"""Two independent 2x6 sheets, sampled on one physical timeline using decoded PTS."""
+"""Aligned decoded-PTS sampling: Gate contact sheets and standalone Memory frame pairs."""
 
 from bisect import bisect_left
 from math import isfinite
@@ -166,3 +166,62 @@ def make_sheets(
         "tile_size": [tile_width, tile_height],
     }
     return gt_path, gen_path, metadata
+
+
+def make_memory_pairs(case, output, gate_sampling, max_side=1024):
+    """Four independent frame pairs at 20/40/60/80% of the shared video timeline."""
+    end = gate_sampling["shared_end_seconds"]
+    targets = [end * fraction for fraction in (0.2, 0.4, 0.6, 0.8)]
+    times = [_timestamps(case.gt_video), _timestamps(case.gen_video)]
+    offsets = [case.gt_start_seconds, case.gen_start_seconds]
+    indices = [
+        [_nearest(clock, t + offset) for t in targets]
+        for clock, offset in zip(times, offsets)
+    ]
+    pairs = []
+    directory = output / "memory_frames"
+    directory.mkdir(exist_ok=True)
+    for slot, t in enumerate(targets):
+        actual = [
+            clock[index[slot]] - offset
+            for clock, index, offset in zip(times, indices, offsets)
+        ]
+        skew = max(abs(actual[0] - t), abs(actual[1] - t), abs(actual[0] - actual[1]))
+        if skew > gate_sampling["max_skew_seconds"] + 1e-9:
+            raise ValueError(f"Memory frame #{slot + 1} cannot align: skew={skew:.6f}s")
+        pairs.append(
+            {
+                "frame_index": slot + 1,
+                "time_seconds": t,
+                "gt_actual_seconds": actual[0],
+                "gen_actual_seconds": actual[1],
+                "gt_frame_index": indices[0][slot],
+                "gen_frame_index": indices[1][slot],
+                "is_read": case.read_start_seconds
+                <= t
+                <= gate_sampling["read_end_seconds"],
+            }
+        )
+    for role, path, wanted in zip(
+        ("gt", "gen"), (case.gt_video, case.gen_video), indices
+    ):
+        with av.open(path) as container:
+            for index, frame in enumerate(container.decode(video=0)):
+                for slot in [
+                    slot for slot, desired in enumerate(wanted) if desired == index
+                ]:
+                    image = frame.to_image().convert("RGB")
+                    # No collage, timestamps or stretching in the Judge's image input.
+                    if max(image.size) > max_side:
+                        image = ImageOps.contain(image, (max_side, max_side))
+                    image.save(directory / f"{slot + 1}_{role}.jpg", quality=95)
+                if index >= max(wanted):
+                    break
+    return {
+        "fractions": [0.2, 0.4, 0.6, 0.8],
+        "interval": [0.2 * end, 0.8 * end],
+        "frames": pairs,
+        "max_side": max_side,
+        "gt_unique_frames": len(set(indices[0])),
+        "gen_unique_frames": len(set(indices[1])),
+    }

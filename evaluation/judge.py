@@ -1,4 +1,4 @@
-"""One logical call per dimension; bounded concurrent requests and auditable retries."""
+"""One Gate call, or one selected dimension per frame pair; bounded requests and audit logs."""
 
 import asyncio
 import base64
@@ -7,12 +7,14 @@ from math import isfinite
 from pathlib import Path
 
 import httpx
+from pydantic import create_model
 
 from .appearance.schema import Judgment as Appearance
 from .environment.schema import Judgment as Environment
 from .gate.schema import Judgment as Gate
 from .inventory.schema import Judgment as Inventory
 from .rate_limit import RequestPacer
+from .schema import Metric, Record
 from .spatial.schema import Judgment as Spatial
 
 ROOT = Path(__file__).parent
@@ -54,6 +56,7 @@ def validate_evidence(dimension, judgment, read_indices, lighting_style):
     if (
         dimension == "environment"
         and not lighting_style
+        and getattr(judgment, "lighting_style", None) is not None
         and judgment.lighting_style.status != "not_applicable"
     ):
         raise ValueError(
@@ -111,6 +114,7 @@ class Judge:
             transport=transport,
         )
         self.common = (ROOT / "common.md").read_text()
+        self.memory_common = (ROOT / "memory_common.md").read_text()
         self.rubrics = {
             dimension: (ROOT / dimension / "rubric.md").read_text()
             for dimension in SCHEMAS
@@ -121,6 +125,21 @@ class Judge:
 
     async def ask(self, dimension, context, images, output: Path):
         schema = SCHEMAS[dimension]
+        selected = context.get("selected_metrics")
+        if selected is not None and dimension not in ("gate", "inventory"):
+            fields = {
+                key.split(".")[1]: (Metric, ...)
+                for key in selected
+                if key.startswith(dimension + ".")
+            }
+            schema = create_model(
+                f"{dimension.title()}Judgment", __base__=Record, **fields
+            )
+        common = (
+            self.memory_common
+            if context.get("memory_frame") is not None
+            else self.common
+        )
         prompt = (
             self.rubrics[dimension]
             + "\nCASE AND SAMPLING:\n"
@@ -148,7 +167,7 @@ class Judge:
         record = {
             "dimension": dimension,
             "model": self.model,
-            "common_rubric": self.common,
+            "common_rubric": common,
             "rubric": self.rubrics[dimension],
             "schema": schema.model_json_schema(),
             "context": context,
@@ -168,7 +187,7 @@ class Judge:
                 "stream": False,
                 "response_format": {"type": "json_object"},
                 "messages": [
-                    {"role": "system", "content": self.common},
+                    {"role": "system", "content": common},
                     {
                         "role": "user",
                         "content": content

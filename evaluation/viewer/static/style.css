@@ -673,3 +673,25 @@ dialog::backdrop {
     width: 1800px;
   }
 }
+
+.pair img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+  background: #171b24;
+}
+.frame-overview {
+  display: block;
+  overflow-x: auto;
+}
+.frame-overview h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+.frame-overview table {
+  min-width: 530px;
+}
+.score-value {
+  overflow-wrap: anywhere;
+}

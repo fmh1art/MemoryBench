@@ -19,9 +19,14 @@ from evaluation.inventory.scoring import score_inventory
 from evaluation.judge import Judge, validate_evidence
 from evaluation.run import evaluate_case, load_cases, main
 from evaluation.schema import Case, Metric
-from evaluation.scoring import score_memory, summarize
+from evaluation.scoring import (
+    average_memory_frames,
+    score_memory,
+    select_metrics,
+    summarize,
+)
 from evaluation.spatial.schema import Judgment as Spatial
-from evaluation.video import make_sheets
+from evaluation.video import make_memory_pairs, make_sheets
 
 EVIDENCE = [
     {
@@ -251,6 +256,7 @@ class MockService:
     def __init__(self):
         self.outputs = replies()
         self.calls = []
+        self.contexts = []
         self.active = self.peak = 0
         self.fail = None
         self.invalid_once = None
@@ -269,6 +275,10 @@ class MockService:
             "scene_structure": "environment",
         }[first]
         self.calls.append(dimension)
+        context = json.loads(
+            prompt.split("CASE AND SAMPLING:\n")[1].split("\nREQUIRED JSON SCHEMA:")[0]
+        )
+        self.contexts.append(context)
         image_positions = [
             i for i, value in enumerate(content) if value["type"] == "image_url"
         ]
@@ -286,7 +296,25 @@ class MockService:
             self.invalid_once = None
             response = "invalid JSON"
         else:
-            response = json.dumps(self.outputs[dimension])
+            data = json.loads(json.dumps(self.outputs[dimension]))
+            if context.get("memory_frame"):
+                index = context["memory_frame"]["frame_index"]
+
+                def update_evidence(value):
+                    if isinstance(value, dict):
+                        if "frame_indices" in value:
+                            value["frame_indices"] = [index]
+                        for child in value.values():
+                            update_evidence(child)
+                    elif isinstance(value, list):
+                        for child in value:
+                            update_evidence(child)
+
+                update_evidence(data)
+            data = {
+                key: value for key, value in data.items() if key in schema["properties"]
+            }
+            response = json.dumps(data)
         return httpx.Response(
             200,
             json={
@@ -298,7 +326,7 @@ class MockService:
         )
 
 
-def run_mock(case, output, service, concurrency=3, retries=0):
+def run_mock(case, output, service, concurrency=3, retries=0, selected_metrics=None):
     async def execute():
         judge = Judge(
             "https://mock.test/v1/chat/completions",
@@ -309,7 +337,9 @@ def run_mock(case, output, service, concurrency=3, retries=0):
             transport=httpx.MockTransport(service),
         )
         try:
-            return await evaluate_case(case, judge, output)
+            return await evaluate_case(
+                case, judge, output, selected_metrics=selected_metrics
+            )
         finally:
             await judge.close()
 
@@ -320,15 +350,21 @@ def test_gate_then_parallel_memory_calls_and_audit(case, tmp_path):
     service = MockService()
     result = run_mock(case, tmp_path / "passing", service)
     assert result["status"] == "scored" and result["memory_score"] == 1
-    assert service.calls[0] == "gate" and sorted(service.calls[1:]) == [
-        "appearance",
-        "environment",
-        "inventory",
-        "spatial",
-    ]
+    assert service.calls[0] == "gate"
+    assert len(service.calls) == 13
+    assert all(
+        service.calls.count(dim) == 4 for dim in ("inventory", "appearance", "spatial")
+    )
+    assert "environment" not in service.calls
+    assert len(result["memory_frames"]) == 4
     assert service.peak == 3
-    record = json.loads((tmp_path / "passing/judges/inventory.json").read_text())
-    assert record["attempts"][0]["parsed"] == service.outputs["inventory"]
+    record = json.loads(
+        (tmp_path / "passing/judges/frame_1/inventory.json").read_text()
+    )
+    assert record["attempts"][0]["parsed"]["objects"][0]["gt_count"] == 1
+    assert record["context"]["memory_frame"]["frame_index"] == 1
+    assert len(record["context"]["sampling"]["frames"]) == 1
+
     assert "fake-secret" not in json.dumps(record)
     assert "base64" not in json.dumps(record)
 
@@ -347,10 +383,11 @@ def test_api_failure_finishes_other_judges_and_does_not_score_zero(case, tmp_pat
     service.fail = "appearance"
     result = run_mock(case, tmp_path / "error", service, retries=2)
     assert result["status"] == "error" and result["memory_score"] is None
-    assert service.calls.count("appearance") == 1  # terminal 400, no retry
-    assert len(result["judgments"]) == 3
+    assert service.calls.count("appearance") == 4  # one terminal 400 per pair
+    assert all(len(frame["judgments"]) == 2 for frame in result["memory_frames"])
     assert (
-        "Do not persist" not in (tmp_path / "error/judges/appearance.json").read_text()
+        "Do not persist"
+        not in (tmp_path / "error/judges/frame_1/appearance.json").read_text()
     )
 
 
@@ -359,8 +396,8 @@ def test_invalid_json_retries_and_preserves_attempts(case, tmp_path):
     service.invalid_once = "inventory"
     result = run_mock(case, tmp_path / "retry", service, retries=1)
     assert result["status"] == "scored"
-    assert service.calls.count("inventory") == 2
-    record = json.loads((tmp_path / "retry/judges/inventory.json").read_text())
+    assert service.calls.count("inventory") == 5
+    record = json.loads((tmp_path / "retry/judges/frame_1/inventory.json").read_text())
     assert len(record["attempts"]) == 2 and "error" in record["attempts"][0]
     repair = record["attempts"][1]["validation_repair"]
     assert "COMPLETE JSON object" in repair
@@ -387,7 +424,7 @@ def test_global_concurrency_across_cases(case, tmp_path):
 
     results = asyncio.run(execute())
     assert all(result["status"] == "scored" for result in results)
-    assert service.peak == 2 and len(service.calls) == 10
+    assert service.peak == 2 and len(service.calls) == 26
     summary = summarize(
         results
         + [
@@ -407,7 +444,7 @@ def test_global_concurrency_across_cases(case, tmp_path):
     ] == pytest.approx(2 / 3)
     assert (
         summary["memory_score"] == 1
-        and summary["metrics"]["environment.lighting_style"]["n"] == 0
+        and "environment.lighting_style" not in summary["metrics"]
     )
 
 
@@ -545,3 +582,119 @@ def test_connection_timeout_does_not_use_full_generation_timeout():
             await judge.close()
 
     asyncio.run(execute())
+
+
+def test_memory_pairs_sample_middle_sixty_percent_without_collages(case, tmp_path):
+    _, _, gate_sampling = make_sheets(case, tmp_path)
+    metadata = make_memory_pairs(case, tmp_path, gate_sampling)
+    assert metadata["fractions"] == [0.2, 0.4, 0.6, 0.8]
+    assert [frame["time_seconds"] for frame in metadata["frames"]] == pytest.approx(
+        [0.4, 0.8, 1.2, 1.6]
+    )
+    assert [frame["is_read"] for frame in metadata["frames"]] == [
+        False,
+        False,
+        True,
+        True,
+    ]
+    with Image.open(tmp_path / "memory_frames/1_gt.jpg") as image:
+        assert image.size == (160, 80)
+    with Image.open(tmp_path / "memory_frames/1_gen.jpg") as image:
+        assert image.size == (80, 160)
+
+
+def test_only_selected_submetrics_are_judged_and_scored(case, tmp_path):
+    service = MockService()
+    selected = select_metrics(metrics=["appearance.visual_appearance"])
+    result = run_mock(case, tmp_path / "selected", service, selected_metrics=selected)
+    assert result["status"] == "scored"
+    assert service.calls == ["gate"] + ["appearance"] * 4
+    assert set(result["scores"]["dimensions"]) == {"appearance"}
+    assert set(result["scores"]["metrics"]) == {"appearance.visual_appearance"}
+    assert set(result["memory_frames"][0]["judgments"]["appearance"]) == {
+        "visual_appearance"
+    }
+    summary = summarize([result])
+    assert summary["dimensions"]["inventory"]["n"] == 0
+    assert summary["inventory"]["missing_objects"]["n"] == 0
+
+
+def test_environment_can_be_explicitly_enabled(case, tmp_path):
+    service = MockService()
+    result = run_mock(
+        case,
+        tmp_path / "environment",
+        service,
+        selected_metrics=select_metrics(["environment"]),
+    )
+    assert result["status"] == "scored"
+    assert service.calls.count("environment") == 4
+    assert "inventory" not in service.calls
+
+
+def test_four_frame_scores_are_averaged_and_missing_evidence_not_dropped():
+    frames = []
+    for value in (0.0, 0.2, 0.6, 1.0):
+        frames.append(
+            {
+                "status": "scored",
+                "memory_score": value,
+                "scores": {
+                    "dimensions": {
+                        "appearance": {"status": "scored", "normalized": value}
+                    },
+                    "metrics": {
+                        "appearance.visual_appearance": {
+                            "status": "scored",
+                            "score": 5 * value,
+                            "normalized": value,
+                        }
+                    },
+                },
+            }
+        )
+    aggregate = average_memory_frames(frames)
+    assert aggregate["memory_score"] == pytest.approx(0.45)
+    assert aggregate["metrics"]["appearance.visual_appearance"][
+        "score"
+    ] == pytest.approx(2.25)
+    frames[0]["status"] = "insufficient_evidence"
+    frames[0]["memory_score"] = None
+    for group in ("dimensions", "metrics"):
+        for item in frames[0]["scores"][group].values():
+            item.update(status="insufficient_evidence", normalized=None)
+    assert average_memory_frames(frames)["memory_score"] is None
+
+
+def test_frame_averaging_retains_not_applicable_and_rejects_partial_denominator():
+    frames = []
+    for _ in range(4):
+        item = {"status": "not_applicable", "normalized": None, "score": None}
+        frames.append(
+            {
+                "status": "not_applicable",
+                "memory_score": None,
+                "scores": {
+                    "dimensions": {"environment": dict(item)},
+                    "metrics": {"environment.lighting_style": dict(item)},
+                },
+            }
+        )
+    aggregate = average_memory_frames(frames)
+    assert aggregate["status"] == "not_applicable"
+    assert aggregate["memory_score"] is None
+    frames[0]["status"] = "scored"
+    frames[0]["memory_score"] = 1.0
+    for group in ("dimensions", "metrics"):
+        for item in frames[0]["scores"][group].values():
+            item.update(status="scored", normalized=1.0, score=5)
+    assert average_memory_frames(frames)["status"] == "insufficient_evidence"
+    assert average_memory_frames(frames)["memory_score"] is None
+
+
+def test_inventory_metric_selection_changes_only_the_aggregation():
+    judgment = inventory([(1, 2)])
+    scores = score_memory({"inventory": judgment}, ["inventory.object_presence"])
+    assert scores["memory_score"] == 1.0
+    assert set(scores["metrics"]) == {"inventory.object_presence"}
+    assert scores["dimensions"]["inventory"]["spurious_objects"] == 1

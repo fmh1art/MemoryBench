@@ -24,6 +24,9 @@ const METRICS = {
   scene_structure: "Scene Structure · 场景结构",
   background_appearance: "Background Appearance · 背景外观",
   lighting_style: "Lighting / Style · 光照与风格",
+  object_presence: "Object Presence · 存在率",
+  object_count: "Object Count · 数量一致性",
+  f1: "Inventory F1",
 };
 const state = {
   cases: [],
@@ -165,7 +168,13 @@ async function selectCase(caseId) {
     $("message").hidden = true;
     $("detail").hidden = false;
     $("main").setAttribute("aria-busy", "false");
-    setView(state.view);
+    setView(
+      result.memory_sampling
+        ? "frames"
+        : state.view === "frames"
+          ? "sheets"
+          : state.view,
+    );
   } catch (error) {
     if (error.name !== "AbortError") {
       $("message").textContent = error.message;
@@ -197,8 +206,17 @@ function renderCase() {
   $("score-cards").replaceChildren(
     ...cards.map(([name, value]) => {
       const card = element("div", undefined, "score-card");
-      const number = element("div", score(value), "score-value");
-      number.append(element("span", "/ 1", "score-scale"));
+      const key = name.toLowerCase();
+      const disabled =
+        name !== "Memory" &&
+        result.selected_metrics &&
+        !result.selected_metrics.some((metric) => metric.startsWith(key + "."));
+      const number = element(
+        "div",
+        disabled ? "未启用" : score(value),
+        "score-value",
+      );
+      if (!disabled) number.append(element("span", "/ 1", "score-scale"));
       const bar = element("div", undefined, "bar");
       const fill = element("div", undefined, "bar-fill");
       fill.style.width =
@@ -217,25 +235,115 @@ function renderCase() {
         ? "Gate 未通过，Memory Judge 未执行；分数未计算，不能按零分理解。"
         : result.status === "insufficient_evidence"
           ? "部分指标证据不足，综合分未计算；已有子指标结果仍可查看。"
-          : "评估调用失败，分数未计算；错误信息见下方。";
+          : result.status === "not_applicable"
+            ? "已启用指标均不适用，综合分未计算；原因见下方 evidence。"
+            : "评估调用失败，分数未计算；错误信息见下方。";
   for (const [id, kind] of [
     ["gt-sheet", "gt_sheet"],
     ["gen-sheet", "gen_sheet"],
   ]) {
     $(id).src = media(kind);
   }
-  state.frame = sampling?.read_frame_indices?.[0] ?? 1;
+  state.frame = result.memory_sampling
+    ? 1
+    : (sampling?.read_frame_indices?.[0] ?? 1);
+  $("tab-sheets").textContent = result.protocol?.endsWith("v2")
+    ? "Gate · 12 帧拼图"
+    : "拼图对照";
+  $("tab-frames").textContent = result.memory_sampling
+    ? "Memory · 4 组单帧"
+    : "逐帧放大";
+  $("tab-frames").disabled =
+    result.protocol?.endsWith("v2") && !result.memory_sampling;
+  if (result.protocol?.endsWith("v2"))
+    $("score-note").textContent +=
+      " Memory 使用 20% / 40% / 60% / 80% 四组独立单帧；平均分要求四帧均有有效评分。";
+  renderFrameOverview();
   renderFrameSelector();
   renderJudgments();
 }
 
-function evidence(items) {
+function renderFrameOverview() {
+  const result = state.result;
+  const frames = result.memory_frames;
+  $("frame-overview").hidden = !frames;
+  if (!frames) return;
+  const wrapper = element("div");
+  wrapper.append(element("h2", "四帧评分与平均分"));
+  const table = element("table");
+  const head = element("tr");
+  const enabled = Object.keys(DIMENSIONS).filter((dim) =>
+    result.selected_metrics.some((metric) => metric.startsWith(dim + ".")),
+  );
+  for (const label of [
+    "采样帧 / 时间",
+    "Memory",
+    ...enabled.map((dim) => DIMENSIONS[dim]),
+    "状态",
+  ])
+    head.append(element("th", label));
+  table.append(head);
+  for (const frame of frames) {
+    const row = element("tr");
+    const label = element("td");
+    const button = element(
+      "button",
+      `#${frame.frame_index} · ${20 * frame.frame_index}% · ${seconds(frame.time_seconds)}`,
+      "frame-link",
+    );
+    button.addEventListener("click", () => {
+      state.frame = frame.frame_index;
+      setView("frames");
+      renderFrameSelector();
+      renderJudgments();
+    });
+    label.append(button);
+    row.append(label, element("td", score(frame.memory_score), "numeric"));
+    for (const dim of enabled)
+      row.append(
+        element(
+          "td",
+          score(frame.scores?.dimensions?.[dim]?.normalized),
+          "numeric",
+        ),
+      );
+    row.append(element("td", STATUS[frame.status] || frame.status));
+    table.append(row);
+  }
+  wrapper.append(
+    table,
+    element(
+      "p",
+      "表中分数为 0–1。上方卡片是四帧平均分；下方 evidence、Inventory 物体计数和原始 0–5 分属于当前选中的单帧。",
+      "small muted",
+    ),
+  );
+  if (result.scores?.metrics) {
+    const averages = element("div", undefined, "inventory-stats");
+    for (const [name, metric] of Object.entries(result.scores.metrics)) {
+      const key = name.split(".")[1];
+      const value = name.startsWith("inventory.")
+        ? `${score(metric.normalized)} / 1`
+        : `${score(metric.score)} / 5`;
+      const item = element("span", `${METRICS[key] || key} 平均`);
+      item.append(element("strong", value));
+      averages.append(item);
+    }
+    wrapper.append(averages);
+  }
+  $("frame-overview").replaceChildren(wrapper);
+}
+
+function evidence(items, memoryPair = false) {
   const wrapper = element("div");
   for (const item of items ?? []) {
     const block = element("div", undefined, "evidence");
     const links = element("div");
     for (const index of item.frame_indices ?? []) {
-      const frame = state.result.sampling?.frames?.find(
+      const sampling = memoryPair
+        ? state.result.memory_sampling
+        : state.result.sampling;
+      const frame = sampling?.frames?.find(
         (value) => value.frame_index === index,
       );
       const button = element(
@@ -244,6 +352,14 @@ function evidence(items) {
         "frame-link",
       );
       button.addEventListener("click", () => {
+        if (!memoryPair && state.result.memory_sampling) {
+          setView("sheets");
+          $("view-sheets").scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+          return;
+        }
         state.frame = index;
         setView("frames");
         renderFrameSelector();
@@ -261,7 +377,7 @@ function evidence(items) {
   return wrapper;
 }
 
-function metricRow(name, metric, binary = false) {
+function metricRow(name, metric, binary = false, memoryPair = false) {
   const row = element("div", undefined, "metric-row");
   const heading = element("div", undefined, "metric-heading");
   let value;
@@ -276,7 +392,7 @@ function metricRow(name, metric, binary = false) {
     element("span", METRICS[name] || name, "metric-title"),
     element("span", value, "metric-value"),
   );
-  row.append(heading, evidence(metric.evidence));
+  row.append(heading, evidence(metric.evidence, memoryPair));
   return row;
 }
 
@@ -309,10 +425,18 @@ function renderJudgments() {
       ),
     );
   }
-  const inventory = result.judgments?.inventory;
+  const current = result.memory_frames?.find(
+    (frame) => frame.frame_index === state.frame,
+  );
+  const detail = current ?? result;
+  const memoryPair = Boolean(current);
+  $("judgments-title").textContent = current
+    ? `具体指标与证据 · Memory #${state.frame} · ${seconds(current.time_seconds)}`
+    : "具体指标与证据";
+  const inventory = detail.judgments?.inventory;
   if (inventory) {
     const contents = [];
-    const stats = result.scores?.dimensions?.inventory;
+    const stats = detail.scores?.dimensions?.inventory;
     if (stats) {
       const values = element("div", undefined, "inventory-stats");
       for (const [key, label] of [
@@ -338,7 +462,7 @@ function renderJudgments() {
     }
     if (!inventory.region_assessable)
       contents.push(element("p", "目标区域无法可靠统计 Inventory。", "reason"));
-    contents.push(evidence(inventory.evidence));
+    contents.push(evidence(inventory.evidence, memoryPair));
     const table = element("table");
     const head = element("thead");
     const header = element("tr");
@@ -351,7 +475,7 @@ function renderJudgments() {
       const description = element("td", object.object_id);
       description.append(
         element("div", object.description, "object-description"),
-        evidence(object.evidence),
+        evidence(object.evidence, memoryPair),
       );
       row.append(description);
       const known = object.gt_count !== null && object.gen_count !== null;
@@ -387,14 +511,14 @@ function renderJudgments() {
     );
   }
   for (const dimension of ["appearance", "spatial", "environment"]) {
-    const judgments = result.judgments?.[dimension];
+    const judgments = detail.judgments?.[dimension];
     if (judgments) {
       sections.push(
         section(
           DIMENSIONS[dimension],
-          `${score(result.scores?.dimensions?.[dimension]?.normalized)} / 1`,
+          `${score(detail.scores?.dimensions?.[dimension]?.normalized)} / 1`,
           Object.entries(judgments).map(([name, metric]) =>
-            metricRow(name, metric),
+            metricRow(name, metric, false, memoryPair),
           ),
         ),
       );
@@ -432,8 +556,15 @@ function setView(view) {
 }
 
 function renderFrameSelector() {
-  const frames = state.result.sampling?.frames ?? [];
-  const read = new Set(state.result.sampling?.read_frame_indices ?? []);
+  const sampling = state.result.memory_sampling ?? state.result.sampling;
+  const frames = sampling?.frames ?? [];
+  const read = new Set(
+    state.result.memory_sampling
+      ? frames
+          .filter((frame) => frame.is_read)
+          .map((frame) => frame.frame_index)
+      : (sampling?.read_frame_indices ?? []),
+  );
   $("frame-selector").replaceChildren(
     ...frames.map((frame) => {
       const button = element(
@@ -446,6 +577,7 @@ function renderFrameSelector() {
         state.frame = frame.frame_index;
         renderFrameSelector();
         renderFramePair();
+        renderJudgments();
       });
       return button;
     }),
@@ -469,7 +601,35 @@ async function sheetImages() {
 async function renderFramePair() {
   const revision = state.revision;
   const index = state.frame;
-  const sampling = state.result.sampling;
+  const sampling = state.result.memory_sampling ?? state.result.sampling;
+  if (state.result.memory_sampling) {
+    const frame = sampling.frames.find((value) => value.frame_index === index);
+    const figures = ["gt", "gen"].map((role) => {
+      const figure = element("figure");
+      figure.append(
+        element(
+          "figcaption",
+          role === "gt" ? "GT · Reference" : "Gen · Generated",
+          role === "gt" ? "reference" : "generated",
+        ),
+      );
+      const image = element("img");
+      image.src = media(`${role}_frame_${index}`);
+      image.alt = `${role.toUpperCase()} memory frame #${index}`;
+      figure.append(
+        image,
+        element(
+          "p",
+          `#${index} · 对齐时间 ${seconds(frame.time_seconds)} · 实际帧 ${seconds(frame[role + "_actual_seconds"])}`,
+          "frame-subtitle",
+        ),
+      );
+      return figure;
+    });
+    $("frame-pair").replaceChildren(...figures);
+    renderJudgments();
+    return;
+  }
   $("frame-pair").replaceChildren(element("p", "正在载入帧…", "muted"));
   if (!sampling) return;
   try {
@@ -671,7 +831,7 @@ async function init() {
     for (const [label, value] of [
       ["Model", data.model],
       ["Cases", data.cases.length],
-      ["有效评分", data.summary.scored_cases ?? "—"],
+      ["完整评分", `${data.summary.scored_cases ?? "—"}/${data.cases.length}`],
       [
         "Gate 通过",
         typeof data.summary.gate_pass_rate === "number"
@@ -684,7 +844,11 @@ async function init() {
       item.append(element("strong", value));
       $("overview").append(item);
     }
-    const linked = decodeURIComponent(location.hash.slice(1));
+    const linked =
+      decodeURIComponent(location.hash.slice(1)) ||
+      (data.protocol?.endsWith("v2")
+        ? state.cases.find((item) => item.status === "scored")?.case_id
+        : "");
     state.selected = state.cases.some((item) => item.case_id === linked)
       ? linked
       : null;

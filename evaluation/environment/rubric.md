@@ -1,4 +1,4 @@
-Evaluate surrounding world preservation during Read. I_gt is the GT reference; I_gen is the generated
+Evaluate surrounding world preservation in this single-frame pair. I_gt is the GT reference; I_gen is the generated
 video. **Explicitly ignore memory_target objects, their appearance, their counts and their placement.**
 Conceptually exclude their occupied regions in both images; do not let a missing/extra target improve
 or degrade environment scores. If the target is an entire region (e.g. drawer contents), exclude those
@@ -41,6 +41,6 @@ not_applicable, score=null, with evidence saying this optional metric is disable
 This is fidelity to GT, never a preference for a prettier style. Do not count geometry or target defects
 as lighting/style errors. Do not infer a lighting change solely from looking toward a different light source.
 
-Return scene_structure, background_appearance and lighting_style as Metric records. Cite Read frames
+Return scene_structure, background_appearance and lighting_style as Metric records. Cite the supplied memory_frame.frame_index
 and specific non-target landmarks/surfaces. Use insufficient_evidence/null when framing or visibility
 prevents a reliable comparison of an existing background fact; keep that distinct from real scene loss.
