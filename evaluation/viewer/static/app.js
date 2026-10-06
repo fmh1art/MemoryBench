@@ -497,8 +497,10 @@ function renderJudgments() {
       }
       contents.push(values);
     }
-    if (!inventory.region_assessable)
-      contents.push(element("p", "目标区域无法可靠统计 Inventory。", "reason"));
+    if (inventory.generated_quality_failure)
+      contents.push(element("p", "GT 清楚且 Gen 目标区域已展示，但生成缺陷导致无法辨认：Presence / Count 计 0；未知数量及错误统计保留为空。", "reason"));
+    else if (!inventory.region_assessable)
+      contents.push(element("p", "目标区域无法可靠统计 Inventory，跳过该帧。", "reason"));
     contents.push(evidence(inventory.evidence, memoryPair));
     const table = element("table");
     const head = element("thead");
@@ -560,6 +562,13 @@ function renderJudgments() {
         ),
       );
     }
+  }
+  if (current?.null_policy_review) {
+    sections.push(section("Null 复核", "仅复核原来的空分数；Gate 与已有数值评分保留", current.null_policy_review.decisions.map((item) => {
+      const row = element("div", undefined, "metric-row");
+      row.append(element("p", `${item.metric} · ${item.decision === "zero" ? "生成缺陷：改为 0" : "保留 null：跳过平均"}`), evidence(item.evidence, true));
+      return row;
+    })));
   }
   if (result.error || result.errors) {
     sections.push(

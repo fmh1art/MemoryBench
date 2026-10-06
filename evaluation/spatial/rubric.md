@@ -36,4 +36,7 @@ when it is the defining memory fact; explain its significance in evidence.
 Return object_localization and relative_spatial_relation as Metric records with single-pair evidence naming
 targets, anchors and relations. If GT defines no assessable relation, use not_applicable/null for that
 metric. If an existing fact cannot be resolved because of visibility/projection, use
-insufficient_evidence/null. Missing targets in observable regions are scored failures, not exclusions.
+insufficient_evidence/null, except when GT clearly establishes that fact and generated corruption
+in an exposed Gen region prevents its recovery: then score the affected submetric 0. Natural
+occlusion or perspective ambiguity alone stays null. Missing targets in observable regions are
+scored failures, not exclusions.

@@ -19,7 +19,10 @@ async def judge_appearance(judge, inventory, context, images, output):
     }
     if matching:
         return await judge.ask("appearance", context, images, output)
-    reliable = score_inventory(inventory)["status"] == "scored"
+    reliable = (
+        score_inventory(inventory)["status"] == "scored"
+        and not inventory.generated_quality_failure
+    )
     status = "not_applicable" if reliable else "insufficient_evidence"
     evidence = [
         {

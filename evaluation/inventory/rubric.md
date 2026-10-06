@@ -12,7 +12,16 @@ For a region-only target WITHOUT an explicit object list, include all visibly se
 Gen contents. Exclude enclosing furniture and unrelated surrounding objects unless explicitly targeted.
 For an individual-object target, do not invent a whole-room inventory.
 
-Return region_assessable, objects, and overall evidence. Each objects entry contains a unique
+Return region_assessable, gt_reference_clear, gen_region_exposed, generated_quality_failure,
+objects, and overall evidence. generated_quality_failure is true ONLY when GT clearly exposes the
+scoped inventory, the corresponding Gen region is exposed, and generated blur/smearing/fusion
+prevents reliable identity or counting. Keep unknown counts null; Python assigns zero Presence
+and Count under this explicit failure condition, without fabricating missing/spurious counts.
+All scoped GT counts must be known before setting this flag; GT uncertainty remains excluded.
+If GT has zero target instances, Presence remains not_applicable and only Count receives zero.
+For GT invisibility, natural occlusion or viewpoint limitations, this flag is false and unresolved
+counts remain excluded. If counts are readable, annotate them normally, even when Gen looks degraded.
+Each objects entry contains a unique
 object_id, a short description, gt_count, gen_count, and evidence. Group interchangeable objects
 of the same semantic identity; use distinct groups for visually identifiable distinct objects
 (e.g. a marked red cup and an unmarked blue cup when those identify different items). Match by

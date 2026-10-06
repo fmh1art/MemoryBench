@@ -8,7 +8,10 @@ Appearance for omissions/count errors. A color/material/shape change is still an
 when identity is established. Use Inventory evidence to locate pairs, then verify attributes in
 these two images: semantic annotation is not proof of appearance fidelity. Do not cherry-pick good
 matched objects; judge all assessable matched instances. If matching is visibly inconsistent or
-attributes cannot be resolved, return insufficient_evidence/null with concrete evidence.
+GT attributes cannot be resolved, return insufficient_evidence/null with concrete evidence.
+For an established matched target, if GT clearly shows the attribute but generated blur/fusion/
+deformation makes that attribute unreadable in an exposed Gen region, score that submetric 0.
+Natural occlusion and viewpoint limitations remain null; do not infer a defect from occlusion alone.
 No matched objects means not_applicable, never zero or five. The runner derives that result without
 a VLM query; if supplied an empty list, apply the same rule. Only this pair is available.
 
@@ -36,6 +39,8 @@ screen-space size differences alone as proof of geometry error. Treat fused/doub
 errors when object count/identity is still clear.
 
 Return visual_appearance and geometry_shape as Metric records. Use insufficient_evidence/null for
-attributes or shape genuinely unresolvable in GT/Gen, with a visibility explanation; not_applicable/null
+attributes or shape unresolvable because of GT visibility or natural occlusion/viewpoint, with a
+visibility explanation. Confirmed Gen degradation with clear GT and an exposed Gen region is 0;
+not_applicable/null
 when no matched target instance exists or the matched target lacks the relevant visual property. Each record needs single-pair evidence specifying matched or
 changed attributes/parts and the affected targets.

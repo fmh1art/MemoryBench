@@ -9,8 +9,14 @@ This is ONE of eight independently judged timestamps in the middle 80% of the sh
 Judge ONLY this image pair. No other frames or historical observations are available. Do not
 assume earlier/later visibility, persistent defects or actions from these still images. The
 case description defines the target and Read operation, never substitutes for GT visual evidence.
-Compare all assessable target facts in this pair. If the target region is occluded, outside the
-view or too unclear, use insufficient_evidence/null with concrete evidence. A clearly inspected
+Compare all assessable target facts in this pair. Use insufficient_evidence/null when GT does not
+expose the required memory fact, GT itself is unreadable, or natural occlusion/viewpoint prevents
+comparison. If GT clearly establishes the fact and the corresponding Gen region is exposed, but
+GENERATED blur, smearing, fusion or deformation prevents recovery of that fact, score the affected
+metric 0: generated degradation is a failure, not grounds for excluding the frame. Do not turn a
+small sharpness difference into a zero if the required fact remains readable. Camera/projection
+differences and natural occlusion alone are not generated quality failures. Explain which condition
+applies in evidence. A clearly inspected
 empty Gen region where GT contains a target is an actual failure, not uncertainty. An offscreen
 GT target is not proof that Gen has forgotten it. Inventory and Spatial score confirmed missing-target errors. Appearance evaluates only Inventory-matched
 instances; missing/unmatched targets are excluded from Appearance to avoid duplicate penalties. Do not infer invisible counts, shape, depth or attributes.
@@ -35,5 +41,6 @@ reasoning or a generic assertion.
 contradictory restoration. Apply the dimension-specific anchors to this pair alone.
 status=scored requires a score. not_applicable and insufficient_evidence require null plus evidence.
 not_applicable means GT has no relevant fact for that metric; insufficient_evidence means this
-pair cannot resolve a required fact. Uncertainty is never automatically zero. For an object target
+pair cannot resolve a required fact for reasons other than confirmed generated degradation.
+Uncertainty alone is never automatically zero. For an object target
 that is outside the GT view, use insufficient_evidence rather than declaring the metric irrelevant.

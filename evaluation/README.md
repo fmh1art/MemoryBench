@@ -95,11 +95,28 @@ instead: nonlinear aggregation would give a different case score. Environment ne
 A real zero stays exactly zero; use log/exp only for positive inputs, avoiding log(0) without
 artificially lifting failures to epsilon.
 
-As previously agreed, skip insufficient_evidence/not_applicable rather than replacing them with
-zero. Renormalize selected/available submetric weights. If a whole core dimension has no reliable
+Skip insufficient_evidence/not_applicable when GT does not expose the required fact, GT is
+unreadable, or natural occlusion/viewpoint prevents comparison. If GT is clear and Gen exposes the
+corresponding region but generated degradation makes the fact unreadable, the affected metric is
+scored zero. Inventory keeps unknown counts/diagnostics null and uses generated_quality_failure
+to assign zero Presence/Count; it never invents missing objects from blur. Appearance still only
+evaluates matched instances. Renormalize selected/available submetric weights. If a whole core dimension has no reliable
 score, its case value is null and the geometric mean uses the remaining reliable selected core
 dimensions; persist scored_dimensions/total_dimensions and per-dimension frame coverage. No reliable
 core dimension yields null. A configuration selecting only Environment has no Memory score.
+
+To update saved results under the generated-failure policy:
+
+```bash
+python -m evaluation.review_nulls --source OLD_RESULTS --output NEW_RESULTS --endpoint URL --model MODEL
+```
+
+Supply the key through `MEM_BENCH_API_KEY`. This performs one targeted image query per frame
+with unresolved metrics, keeps Gate and existing numeric grades, and excludes derived unmatched
+Appearance. Successful reviews are resumable. Original files are preserved; `null_review.json`
+records each decision and evidence, and `review_progress.json` tracks progress. Python recomputes
+the same weighted frame scores, temporal dimension averages and geometric case scores afterwards.
+
 Each dimension/submetric benchmark mean uses its own valid case count. Report these denominators;
 partial scores should not be interpreted as complete three-dimension assessments.
 

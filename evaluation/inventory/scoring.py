@@ -33,11 +33,16 @@ def score_inventory(judgment: Judgment) -> dict:
         obj.gt_count is None or obj.gen_count is None for obj in judgment.objects
     )
     if not judgment.region_assessable or unresolved:
+        failure = judgment.generated_quality_failure
         return {
-            "status": "insufficient_evidence",
-            "score": None,
-            "normalized": None,
-            **dict.fromkeys(("object_presence", "object_count", *DIAGNOSTICS)),
+            "status": "scored" if failure else "insufficient_evidence",
+            "score": 0 if failure else None,
+            "normalized": 0 if failure else None,
+            "object_presence": 0
+            if failure and sum(obj.gt_count for obj in judgment.objects) > 0
+            else None,
+            "object_count": 0 if failure else None,
+            **dict.fromkeys(DIAGNOSTICS),
         }
     gt = sum(obj.gt_count for obj in judgment.objects)
     gen = sum(obj.gen_count for obj in judgment.objects)

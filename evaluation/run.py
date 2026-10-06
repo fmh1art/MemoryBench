@@ -69,7 +69,7 @@ async def evaluate_case(
         "gate": None,
         "memory_score": None,
         "protocol": "memory_evaluation.frame_pairs.v3",
-        "aggregation_policy": "skip_unreliable_scores",
+        "aggregation_policy": "skip_reference_unavailable_score_generated_failure_zero",
         "case_aggregation_policy": "gate_valid_memory_only",
         "scoring_version": SCORING_VERSION,
         "selected_metrics": list(selected_metrics),
@@ -216,7 +216,7 @@ async def run(args):
             args.output / "run.json",
             {
                 "protocol": "memory_evaluation.frame_pairs.v3",
-                "aggregation_policy": "skip_unreliable_scores",
+                "aggregation_policy": "skip_reference_unavailable_score_generated_failure_zero",
                 "case_aggregation_policy": "gate_valid_memory_only",
                 "scoring_version": SCORING_VERSION,
                 "selected_metrics": list(selected_metrics),

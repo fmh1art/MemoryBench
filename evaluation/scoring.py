@@ -21,7 +21,7 @@ WEIGHTS = {
     "spatial.object_localization": 0.4,
     "spatial.relative_spatial_relation": 0.6,
 }
-SCORING_VERSION = "memory.v3.weighted_geometric_matched_appearance"
+SCORING_VERSION = "memory.v3.1.generated_failure_zero"
 METRIC_NAMES = tuple(
     f"{dim}.{name}" for dim, names in DIMENSION_METRICS.items() for name in names
 )

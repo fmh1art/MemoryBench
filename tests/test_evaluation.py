@@ -401,7 +401,8 @@ def test_invalid_json_retries_and_preserves_attempts(case, tmp_path):
     assert len(record["attempts"]) == 2 and "error" in record["attempts"][0]
     repair = record["attempts"][1]["validation_repair"]
     assert "COMPLETE JSON object" in repair
-    assert "region_assessable, objects, evidence" in repair
+    assert "region_assessable" in repair and "objects, evidence" in repair
+    assert "generated_quality_failure" in repair
 
 
 def test_global_concurrency_across_cases(case, tmp_path):

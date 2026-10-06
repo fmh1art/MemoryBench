@@ -123,10 +123,23 @@ class Judge:
     async def close(self):
         await self.client.aclose()
 
-    async def ask(self, dimension, context, images, output: Path):
-        schema = SCHEMAS[dimension]
+    async def ask(
+        self,
+        dimension,
+        context,
+        images,
+        output: Path,
+        *,
+        schema_override=None,
+        rubric_override=None,
+    ):
+        schema = schema_override or SCHEMAS[dimension]
         selected = context.get("selected_metrics")
-        if selected is not None and dimension not in ("gate", "inventory"):
+        if (
+            schema_override is None
+            and selected is not None
+            and dimension not in ("gate", "inventory")
+        ):
             fields = {
                 key.split(".")[1]: (Metric, ...)
                 for key in selected
@@ -140,8 +153,11 @@ class Judge:
             if context.get("memory_frame") is not None
             else self.common
         )
+        rubric = (
+            rubric_override if rubric_override is not None else self.rubrics[dimension]
+        )
         prompt = (
-            self.rubrics[dimension]
+            rubric
             + "\nCASE AND SAMPLING:\n"
             + json.dumps(context, ensure_ascii=False)
             + "\nREQUIRED JSON SCHEMA:\n"
@@ -168,7 +184,7 @@ class Judge:
             "dimension": dimension,
             "model": self.model,
             "common_rubric": common,
-            "rubric": self.rubrics[dimension],
+            "rubric": rubric,
             "schema": schema.model_json_schema(),
             "context": context,
             "images": [
