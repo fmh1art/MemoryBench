@@ -1,43 +1,47 @@
 Judge evaluation conditions once, returning two independent binary decisions. Do not score memory.
 I_gt is the GT reference; I_gen is the generated video, not an aesthetic competitor.
 
-**Observability (0/1): reliable visibility of the requested MEMORY TARGETS, not the room.**
-Use memory_objects as the explicit focus list when supplied; otherwise use memory_target.
-Assess GT and Gen at corresponding Read views. Return 1 only when the essential target facts
-visible in GT can be reliably assessed in Gen: separable objects/counts, identity-bearing visual
-features and target placement relative to relevant anchors. The comparison may reveal a clear
-match, a clearly wrong object/state, or confirmed absence. It need not reveal correct memory.
-Clear walls, shelf grids, container outlines, hands or unrelated objects do NOT establish that
-the listed memory targets are observable. Never substitute an easier non-target for a requested target.
+**Observability (0/1): GENERATED VIDEO VISUAL QUALITY / LEGIBILITY.**
+This Gate checks whether Gen has usable visual quality, NOT whether memory targets are present,
+correct, visible or already revealed. Use GT to understand the scene and distinguish normal motion,
+occlusion and physical surfaces from generated artifacts. Do not judge aesthetic preference.
+Return 1 when Gen depicts a visually legible scene: surfaces and boundaries are reasonably clear
+and stable, without severe persistent degradation in the generated Read sequence. Do not require
+the objects described in memory_objects/memory_target to be identifiable or restored to pass.
 
-Return 0 when sustained blur, translucent/opaque obstruction, washed-out detail, ghosting, darkness,
-small scale or missing coverage prevents reliable target inspection. Recognizing 'a refrigerator',
-'a shelf', 'a bottle-like blob' or a rough object location is insufficient when the target's boundaries,
-count or distinguishing features cannot be resolved. For example, if the requested targets are a
-white-capped small bottle, a red-capped large bottle and a purple sealed box, visible shelf lines alone
-cannot compensate for blur that prevents inspecting those target regions and distinguishing these
-items from background or smears. Do not infer their identity or visibility from the annotation.
+Return 0 for a genuine generated-quality failure: sustained severe blur, ghosting/double exposure,
+artificial translucent smearing/veils, washed-out unreadable content, severe scene-wide corruption
+or unstable rendering that makes the depicted scene materially unreadable. Name the visible artifact
+and cite frames where it persists. A few recognizable shelf lines do not rescue an interior covered
+by a strong generated haze/veil. An isolated clear context frame does not rescue a persistently
+corrupted Read sequence. Brief motion blur, modest texture simplification, small camera differences
+and local minor rendering defects are acceptable when the scene remains usable.
 
-**Distinguish confirmed missing content from unobservable content.**
-- Clear, unobstructed expected region with resolvable background/object boundaries and no target:
-  observable=1; confirmed missing memory is a later Memory failure.
-- Blurred, veiled, smeared or obstructed expected region where a target could be hidden or merged:
-  observable=0; 'I cannot see the object' is NOT evidence that the region is visibly empty.
-- A clearly visible wrong/replaced/deformed object is still observable if the concrete mismatch
-  can be resolved. A memory error by itself must not fail this Gate.
-Do not use the visible-empty exception unless the expected region is genuinely inspectable at the
-resolution needed for the requested targets. A vague low-detail patch does not prove absence.
+DO NOT fail Observability merely because:
+- a GT object is missing in an otherwise clear Gen scene;
+- Gen shows a clearly visible wrong object, count, appearance, shape or placement;
+- a target is naturally hidden under a cup, inside a closed container, behind a hand or outside view;
+- a particular sampled frame cannot support a reliable target-specific count or attribute judgment.
+These are memory-content differences, normal visibility limits or action-access questions, not
+proof of low generated visual quality. Action Following handles whether the requested operation
+and target access occurred. Memory submetrics handle confirmed errors or insufficient evidence.
 
-Allow brief motion blur or partial occlusion only when later/other Read views provide reliable
-comparison of the essential targets or their clearly inspected expected regions. Clear exterior
-or pre-Read frames cannot rescue unreadable target views. Do not require every sampled frame to
-be sharp; require adequate target-specific Read evidence. If only coarse layout is recoverable,
-or a required target region remains unassessable across Read, return 0.
+Concrete boundary cases:
+- GT reveals a red block when a cup is lifted; Gen lifts the cup over a CLEAR EMPTY TABLETOP:
+  Observability=1. The table lacks the GT object's features because the object is absent, not because
+  the image is unreadable. Do not demand target boundaries to certify a clear empty surface.
+- A cup remains inverted over a hidden object in a clear scene: Observability=1; the action and
+  target-specific facts are evaluated separately. Natural opaque occlusion is not a rendering artifact.
+- A refrigerator's generated interior has persistent artificial translucent streaking and strong
+  blur across shelves/contents: Observability=0 for the visible image-quality degradation, regardless
+  of whether reference bottles/boxes seem absent.
+- A clear, legible scene contains an incorrect or deformed target: Observability=1; restoration
+  fidelity belongs to Appearance/Geometry/Inventory/Spatial.
 
-Observability evidence must name the requested targets/expected regions, cite corresponding Read
-frames, and describe the concrete visibility: boundaries, distinguishing features, or why an absence
-can be established. On failure, identify which requested facts are blocked and by what degradation.
-Do not merely say 'useful scale' or 'the region is visible'. Evaluate legibility, never visual beauty.
+Evidence must describe Gen visual clarity or a concrete quality defect, with GT used as context.
+A failing evidence statement must identify actual blur/ghosting/veiling/corruption; 'the target is
+not visible', 'no target boundary', 'its identity is uncertain' or 'contents differ' alone cannot
+justify 0. Do not invent a quality defect to explain a missing memory object.
 
 **Action Following (0/1).** Return 1 when Gen visibly achieves action_description and
 success_criterion during/after the Read operation: e.g. the intended drawer opens, the intended
