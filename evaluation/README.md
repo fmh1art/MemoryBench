@@ -214,3 +214,28 @@ python -m evaluation.run --cases cases.json --endpoint "$VLM_ENDPOINT" \
 This starts at most about 109 requests/minute with the 20000-token reservation, retaining 10%
 quota headroom. Concurrency controls latency overlap; it does not replace rate limits. Decrease
 the reservation only after measured pilot usage justifies it.
+
+## Local result viewer
+
+Browse saved results without making new Judge calls. The viewer needs only Python's standard
+library and serves the paired videos referenced by each `result.json`.
+
+```bash
+python -m evaluation.viewer.server \
+  --results /home/fanmeihao/data/acwm/eval_results/_evaluation/terra_full_20261006 \
+  --port 8765
+```
+
+Open <http://127.0.0.1:8765>. Search cases or targets, filter by category/status, and sort by Memory
+score. Each case shows the two timestamp-aligned 12-frame sheets, five normalized score cards,
+raw 0–5 submetric scores, Inventory counts/missing/spurious totals, Gate labels and expandable
+Judge evidence. Click an evidence frame number to open the paired frame crops. Use the video tab
+for synchronized playback/seek, or expand the sheets at their original resolution. Case URLs
+include a shareable `#case_id` fragment. Gate failures and insufficient evidence retain their
+status and null overall score.
+
+On a remote server, forward port 8765 through SSH (`ssh -L 8765:127.0.0.1:8765 user@server`),
+then open the same local URL. `--host` changes the bind address; the default is loopback.
+Artifacts are read when the server starts; restart after replacing result files. Keep the
+referenced GT/Gen videos available to enable playback. Run the viewer regressions with
+`python -m pytest tests/test_evaluation_viewer.py -q`.

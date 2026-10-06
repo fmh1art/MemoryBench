@@ -13,5 +13,5 @@ dependencies = ["httpx>=0.27", "pydantic>=2", "av>=18", "Pillow>=11", "numpy>=2"
 include = ["evaluation*", "mem_case_anno_demo*"]
 
 [tool.setuptools.package-data]
-evaluation = ["common.md", "README.md", "cases.example.json", "*/rubric.md"]
+evaluation = ["common.md", "README.md", "cases.example.json", "*/rubric.md", "viewer/static/*"]
 mem_case_anno_demo = ["static/*"]
