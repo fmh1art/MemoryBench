@@ -892,7 +892,9 @@ async function init() {
           ? (typeof data.summary.memory_score_100 === "number" ? data.summary.memory_score_100.toFixed(2) : "—")
           : score(data.summary.memory_score),
       ],
-      ...(data.summary.case_aggregation_policy === "all_cases_gate_failed_zero" ? [["Gate 通过均分 / 100", typeof data.summary.gate_valid_memory_score_100 === "number" ? data.summary.gate_valid_memory_score_100.toFixed(2) : "—"]] : []),
+      ...(data.summary.case_aggregation_policy === "all_cases_gate_failed_zero" ? [[data.summary.benchmark_complete === false ? "已评分通过 Gate 均分 / 100" : "Gate 通过均分 / 100", typeof data.summary.gate_valid_memory_score_100 === "number" ? data.summary.gate_valid_memory_score_100.toFixed(2) : "—"]] : []),
+      ...(data.summary.pending_cases > 0 ? [["待确认", data.summary.pending_cases]] : []),
+      ...(data.summary.benchmark_complete === false && typeof data.summary.partial_memory_score === "number" ? [["临时均分 / 100", (100 * data.summary.partial_memory_score).toFixed(2)]] : []),
       ...["inventory", "appearance", "spatial"].map((key) => [
         DIMENSIONS[key], score(data.summary.dimensions?.[key]?.mean),
       ]),
