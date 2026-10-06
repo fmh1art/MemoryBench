@@ -180,6 +180,8 @@ class Judge:
             if self.temperature is not None:
                 body["temperature"] = self.temperature
             event = {"attempt": attempt + 1}
+            if repair:
+                event["validation_repair"] = repair
             retryable = True
             try:
                 headers = (
@@ -244,8 +246,11 @@ class Judge:
                         f"{dimension} judge failed: {event['error']}"
                     ) from None
                 repair = (
-                    "Previous response failed validation. Return corrected JSON. Error: "
-                    + detail[:1000]
+                    "Previous response failed validation. Return a COMPLETE JSON object with ALL "
+                    "required top-level keys: "
+                    + ", ".join(schema.model_fields)
+                    + ". Include every metric, even when not_applicable or insufficient_evidence; "
+                    "do not return only the corrected field. Error: " + detail[:1000]
                 )
                 await asyncio.sleep(min(2**attempt, 4))
         raise RuntimeError("Unreachable judge state")

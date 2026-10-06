@@ -362,6 +362,9 @@ def test_invalid_json_retries_and_preserves_attempts(case, tmp_path):
     assert service.calls.count("inventory") == 2
     record = json.loads((tmp_path / "retry/judges/inventory.json").read_text())
     assert len(record["attempts"]) == 2 and "error" in record["attempts"][0]
+    repair = record["attempts"][1]["validation_repair"]
+    assert "COMPLETE JSON object" in repair
+    assert "region_assessable, objects, evidence" in repair
 
 
 def test_global_concurrency_across_cases(case, tmp_path):
