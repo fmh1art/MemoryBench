@@ -1,5 +1,6 @@
 """Shared input and evidence contracts. Dimension outputs live beside their rubrics."""
 
+import json
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -15,6 +16,10 @@ class Case(Record):
     gt_video: str = Field(min_length=1)
     gen_video: str = Field(min_length=1)
     memory_target: str = Field(min_length=1)
+    memory_objects: list[Annotated[str, Field(min_length=1)]] = Field(
+        default_factory=list
+    )
+    memory_objects_source: str | None = None
     action_description: str = Field(min_length=1)
     success_criterion: str = Field(min_length=1)
     read_start_seconds: float = Field(ge=0)
@@ -34,12 +39,32 @@ class Case(Record):
         return self
 
     def resolve_videos(self, base: Path):
-        return self.model_copy(
-            update={
-                key: str((base / getattr(self, key)).resolve())
-                for key in ("gt_video", "gen_video")
-            }
-        )
+        data = self.model_dump()
+        for key in ("gt_video", "gen_video"):
+            data[key] = str((base / getattr(self, key)).resolve())
+        # Benchmark references carry their Read-specific scope next to ground_truth/.
+        # Explicit caller-provided targets take precedence over dataset annotations.
+        reference = Path(data["gt_video"])
+        if not data["memory_objects"] and reference.parent.name == "ground_truth":
+            for name in ("case.json", "description.json"):
+                annotation_path = reference.parent.parent / name
+                if not annotation_path.is_file():
+                    continue
+                annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
+                if annotation.get("evaluation_case_id") != self.case_id:
+                    raise ValueError(
+                        f"GT annotation identity mismatch in {annotation_path}"
+                    )
+                objects = (annotation.get("metadata") or {}).get("memory_objects")
+                if objects:
+                    data["memory_objects"] = objects
+                    data["memory_objects_source"] = (
+                        str(annotation_path) + "#metadata.memory_objects"
+                    )
+                    break
+        if data["memory_objects"] and data["memory_objects_source"] is None:
+            data["memory_objects_source"] = "explicit_case_input"
+        return type(self).model_validate(data)
 
 
 class Evidence(Record):

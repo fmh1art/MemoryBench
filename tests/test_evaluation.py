@@ -724,3 +724,59 @@ def test_partial_metric_visibility_does_not_discard_reliable_scores():
     assert scores["memory_score"] == 0.0
     assert scores["dimensions"]["appearance"]["scored_samples"] == 1
     assert scores["metrics"]["appearance.geometry_shape"]["normalized"] is None
+
+
+def test_case_loader_adds_read_specific_objects_from_gt_annotations(case, tmp_path):
+    directory = tmp_path / "sample_case"
+    (directory / "ground_truth").mkdir(parents=True)
+    gt = directory / "ground_truth/future.mp4"
+    gt.touch()
+    targets = ["white-capped small bottle", "purple sealed box"]
+    (directory / "case.json").write_text(
+        json.dumps(
+            {
+                "evaluation_case_id": "sample_case",
+                "metadata": {"memory_objects": targets},
+            }
+        )
+    )
+    data = case.model_dump()
+    data.update(case_id="sample_case", gt_video=str(gt))
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps([data]))
+    loaded = load_cases(path)[0]
+    assert loaded.memory_objects == targets
+    assert loaded.memory_objects_source.endswith("case.json#metadata.memory_objects")
+    data["memory_objects"] = ["explicitly chosen target"]
+    path.write_text(json.dumps([data]))
+    assert load_cases(path)[0].memory_objects == ["explicitly chosen target"]
+
+
+def test_target_annotations_cannot_be_loaded_from_a_different_gt_case(case, tmp_path):
+    directory = tmp_path / "other_case"
+    (directory / "ground_truth").mkdir(parents=True)
+    (directory / "case.json").write_text(
+        json.dumps(
+            {
+                "evaluation_case_id": "wrong",
+                "metadata": {"memory_objects": ["wrong object"]},
+            }
+        )
+    )
+    data = case.model_dump()
+    data["gt_video"] = str(directory / "ground_truth/future.mp4")
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps([data]))
+    with pytest.raises(ValueError, match="identity mismatch"):
+        load_cases(path)
+
+
+def test_memory_object_focus_reaches_gate_and_all_memory_queries(case, tmp_path):
+    case = case.model_copy(update={"memory_objects": ["red cup only"]})
+    service = MockService()
+    result = run_mock(case, tmp_path / "focus", service)
+    assert result["status"] == "scored"
+    assert all(
+        context["case"]["memory_objects"] == ["red cup only"]
+        for context in service.contexts
+    )

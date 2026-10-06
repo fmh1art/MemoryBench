@@ -190,6 +190,15 @@ function renderCase() {
   $("case-category").textContent = metadata.category;
   $("case-status").replaceChildren(badge(result.status));
   $("target").textContent = result.case.memory_target;
+  if (result.case.memory_objects?.length) {
+    const focus = element(
+      "span",
+      `重点物体：${result.case.memory_objects.join("；")}`,
+      "object-description",
+    );
+    focus.style.display = "block";
+    $("target").append(focus);
+  }
   $("action").textContent = result.case.action_description;
   const sampling = result.sampling;
   $("read-window").textContent = sampling

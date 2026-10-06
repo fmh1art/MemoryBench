@@ -15,6 +15,14 @@ empty Gen region where GT contains a target is an actual failure, not uncertaint
 GT target is not proof that Gen has forgotten it. Missing targets must not be excused because
 another dimension also captures the error. Do not infer invisible counts, shape, depth or attributes.
 
+TARGET SCOPE: When case.memory_objects is nonempty, it is the explicit Read-memory focus list.
+Assess those objects and their relevant target regions; do not broaden a named list into all
+contents of a shelf, refrigerator, drawer or room. Unrelated objects can provide spatial anchors,
+but their visibility/appearance must not substitute for target evidence or boost target scores.
+Annotations identify what to inspect, not visual proof that an object exists or occupies a position:
+GT images remain the reference for actual state, counts and appearance. If the focus list is empty,
+use memory_target as the scope. Never guess a target list from other objects that are easier to see.
+
 Return only JSON conforming to the supplied schema, with every required field and no extra keys.
 Only the requested submetrics are enabled. Ignore unrequested fields mentioned in the dimension
 rubric and return ONLY schema fields. Every decision, annotation and score needs evidence naming

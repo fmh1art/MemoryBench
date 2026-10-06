@@ -93,6 +93,14 @@ success_criterion, read_start_seconds. The target should unambiguously name the 
 inventory region. Describe the future action and its visible success condition; do not disclose
 expected counts/appearance as a substitute for reference-image evidence.
 
+Optional `memory_objects` is the explicit list of objects tested by this Read. When nonempty,
+Gate and Memory Judges focus only on that list; unrelated items are not an alternative source of
+positive evidence. If omitted, the case loader reads `metadata.memory_objects` from the matching
+GT case's adjacent `case.json`, then `description.json`. It validates the annotation's case identity,
+records memory_objects_source, and preserves explicit caller overrides. For generic videos or
+annotations without an object list, memory_target remains the fallback scope. Names/descriptions
+identify what to inspect; GT images still establish actual presence, counts and placement.
+
 Optional read_end_seconds defaults to the shared clip end. The inclusive Read interval is the
 post-action evaluation interval, not the historical memory-writing interval. Earlier frames show
 action context. Provide clips containing the Read operation if success requires proving motion.
@@ -146,7 +154,12 @@ retained for review. Samples are never silently moved to a more convenient times
 ## Judgments and evidence
 
 Gate outputs independent 0/1 labels. It passes only when both Observability and Action Following
-are 1. A visible empty Gen region can pass: object absence is a memory error. A failed Gate has no
+are 1. A **clear, unobstructed and inspectable** empty Gen region can pass: confirmed absence is a
+memory error. Blur, veiling or unresolved object boundaries cannot establish that the region is empty.
+Observability must establish legibility of the requested targets, not just walls, shelf lines or
+other unrelated objects. Sustained degradation that blocks target identity/count/placement gives 0;
+a clearly visible wrong object/state remains observable. Brief motion blur is allowed when other
+Read frames provide adequate target-specific evidence. A failed Gate has no
 memory score, and no memory judges run. Report Gate pass rates separately from conditional memory scores.
 
 Inventory returns mutually exclusive semantic object groups, reference/generated integer counts,

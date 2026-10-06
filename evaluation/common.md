@@ -13,6 +13,14 @@ state after Read, primarily using read_frame_indices. Earlier frames provide act
 not substitutes for Read evidence. Compare corresponding moments; allow genuine changes visible
 in GT. Track the same object across frames rather than counting its repeated appearances.
 
+TARGET SCOPE: When case.memory_objects is nonempty, it is the explicit Read-memory focus list.
+Assess those objects and their relevant target regions; do not broaden a named list into all
+contents of a shelf, refrigerator, drawer or room. Unrelated objects can provide spatial anchors,
+but their visibility/appearance must not substitute for target evidence or boost target scores.
+Annotations identify what to inspect, not visual proof that an object exists or occupies a position:
+GT images remain the reference for actual state, counts and appearance. If the focus list is empty,
+use memory_target as the scope. Never guess a target list from other objects that are easier to see.
+
 Return only JSON conforming to the supplied schema, with every required field and no extra keys.
 Every decision, object annotation and score needs evidence: frame_indices (integers 1-12) and
 observation. State what GT shows, what Gen shows, and the concrete agreement/difference or visibility

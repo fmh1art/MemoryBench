@@ -2,8 +2,13 @@ Annotate inventory semantics for THIS single-frame pair only. I_gt is the GT ref
 Do NOT calculate scores, ratios, precision/recall, or totals of missing/spurious objects.
 The evaluator computes those from your annotations.
 
-Scope: objects named by memory_target, and objects in its explicitly specified target region.
-For a region target (drawer/shelf/box), include all visibly separable contents, including unexpected
+Scope: if memory_objects is nonempty, inventory ONLY these requested semantic targets.
+Do not include all other objects merely because they share the drawer/shelf/fridge. Count extra
+instances of a target group, and an unmatched replacement occupying a target's expected local region
+when substitution is visually supported; unrelated existing scene contents are excluded. Explain
+why any unexpected group is target-related. If the list is empty, use memory_target and its explicitly
+specified target region.
+For a region-only target WITHOUT an explicit object list, include all visibly separable contents, including unexpected
 Gen contents. Exclude enclosing furniture and unrelated surrounding objects unless explicitly targeted.
 For an individual-object target, do not invent a whole-room inventory.
 
