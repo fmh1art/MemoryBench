@@ -179,6 +179,22 @@ def summarize(results: list[dict]) -> dict:
         for gate in valid_gates
     )
     scored = [item for item in results if item["status"] == "scored"]
+    gate_failed = [item for item in results if item["status"] == "gate_failed"]
+
+    def case_mean(values, rejected):
+        combined = values + [0.0] * rejected
+        return {
+            "mean": mean(combined) if combined else None,
+            "n": len(combined),
+            "gate_passed_mean": mean(values) if values else None,
+            "gate_passed_n": len(values),
+            "gate_failed_zero_n": rejected,
+        }
+
+    def enabled(item, name):
+        selected = item.get("selected_metrics", select_metrics())
+        return any(key == name or key.startswith(name + ".") for key in selected)
+
     dimensions = {}
     for dimension in MEMORY_DIMENSIONS:
         values = [
@@ -186,13 +202,13 @@ def summarize(results: list[dict]) -> dict:
             for item in scored
             if item["scores"]["dimensions"].get(dimension, {}).get("status") == "scored"
         ]
-        dimensions[dimension] = {
-            "mean": mean(values) if values else None,
-            "n": len(values),
-        }
-    # Each mean uses cases with a reliable score for that metric; retain its denominator.
+        dimensions[dimension] = case_mean(
+            values, sum(enabled(item, dimension) for item in gate_failed)
+        )
+    # Gate failures contribute zero; other unreliable scores keep their null status.
     metric_names = sorted(
         {name for item in scored for name in item["scores"]["metrics"]}
+        | {name for item in gate_failed for name in item.get("selected_metrics", ())}
     )
     metrics = {}
     for name in metric_names:
@@ -201,7 +217,9 @@ def summarize(results: list[dict]) -> dict:
             for item in scored
             if item["scores"]["metrics"].get(name, {}).get("status") == "scored"
         ]
-        metrics[name] = {"mean": mean(values) if values else None, "n": len(values)}
+        metrics[name] = case_mean(
+            values, sum(enabled(item, name) for item in gate_failed)
+        )
     inventory = {}
     for name in ("object_presence", "object_count", "precision", "recall", "f1"):
         values = [
@@ -210,7 +228,9 @@ def summarize(results: list[dict]) -> dict:
             if item["scores"]["dimensions"].get("inventory", {}).get("status")
             == "scored"
         ]
-        inventory[name] = {"mean": mean(values) if values else None, "n": len(values)}
+        inventory[name] = case_mean(
+            values, sum(enabled(item, "inventory") for item in gate_failed)
+        )
     for name in ("missing_objects", "spurious_objects"):
         inventory[name] = {
             "total": sum(
@@ -226,7 +246,11 @@ def summarize(results: list[dict]) -> dict:
             ),
             "unit": "sum of per-case mean counts across frames",
         }
+    memory = case_mean(
+        [item["scores"]["memory_score"] for item in scored], len(gate_failed)
+    )
     return {
+        "case_aggregation_policy": "gate_failed_zero_skip_unreliable",
         "total_cases": len(results),
         "gate_evaluated": len(valid_gates),
         "gate_passed": gate_passes,
@@ -250,9 +274,9 @@ def summarize(results: list[dict]) -> dict:
             item["status"] == "insufficient_evidence" for item in results
         ),
         "error_cases": sum(item["status"] == "error" for item in results),
-        "memory_score": mean(item["scores"]["memory_score"] for item in scored)
-        if scored
-        else None,
+        "memory_score": memory["mean"],
+        "memory_score_n": memory["n"],
+        "gate_passed_memory_score": memory["gate_passed_mean"],
         "dimensions": dimensions,
         "metrics": metrics,
         "inventory": inventory,

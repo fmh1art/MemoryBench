@@ -209,7 +209,9 @@ function renderCase() {
     ["Memory", result.memory_score],
     ...Object.keys(DIMENSIONS).map((key) => [
       DIMENSIONS[key],
-      result.scores?.dimensions?.[key]?.normalized,
+      result.status === "gate_failed"
+        ? 0
+        : result.scores?.dimensions?.[key]?.normalized,
     ]),
   ];
   $("score-cards").replaceChildren(
@@ -253,7 +255,7 @@ function renderCase() {
     result.status === "scored"
       ? "分数范围 0–1；展开下方指标可查看 Judge 的 0–5 原始分及证据。Inventory 分数由语义计数计算。"
       : result.status === "gate_failed"
-        ? "Gate 未通过，Memory Judge 未执行；分数未计算，不能按零分理解。"
+        ? "Gate 未通过，Memory Judge 未执行；该样本按 0 分计入全量平均分。"
         : result.status === "insufficient_evidence"
           ? "全部采样帧均无可靠综合分；已有子指标结果仍可查看。"
           : result.status === "not_applicable"
@@ -873,7 +875,7 @@ async function init() {
           ? `${(100 * data.summary.gate_pass_rate).toFixed(1)}%`
           : "—",
       ],
-      ["Memory 均值", score(data.summary.memory_score)],
+      ["Memory 全量均值", score(data.summary.memory_score)],
     ]) {
       const item = element("span", label);
       item.append(element("strong", value));

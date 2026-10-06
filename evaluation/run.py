@@ -66,6 +66,7 @@ async def evaluate_case(
         "memory_score": None,
         "protocol": "memory_evaluation.frame_pairs.v2",
         "aggregation_policy": "skip_unreliable_scores",
+        "case_aggregation_policy": "gate_failed_zero_skip_unreliable",
         "selected_metrics": list(selected_metrics),
     }
     try:
@@ -81,6 +82,7 @@ async def evaluate_case(
         passed = gate.observability.label == 1 and gate.action_following.label == 1
         if not passed:
             result["status"] = "gate_failed"
+            result["memory_score"] = 0.0
         else:
             memory_sampling = await asyncio.to_thread(
                 make_memory_pairs, case, output, sampling
@@ -194,6 +196,7 @@ async def run(args):
             {
                 "protocol": "memory_evaluation.frame_pairs.v2",
                 "aggregation_policy": "skip_unreliable_scores",
+                "case_aggregation_policy": "gate_failed_zero_skip_unreliable",
                 "selected_metrics": list(selected_metrics),
                 "memory_sampling_fractions": list(MEMORY_FRACTIONS),
                 "memory_image_max_side": 1024,

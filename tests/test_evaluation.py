@@ -374,7 +374,7 @@ def test_gate_failure_skips_all_memory_judges(case, tmp_path, label):
     service = MockService()
     service.outputs["gate"][label]["label"] = 0
     result = run_mock(case, tmp_path / label, service)
-    assert result["status"] == "gate_failed" and result["memory_score"] is None
+    assert result["status"] == "gate_failed" and result["memory_score"] == 0.0
     assert service.calls == ["gate"]
 
 
@@ -442,8 +442,12 @@ def test_global_concurrency_across_cases(case, tmp_path):
     assert summary["gate_evaluated"] == 3 and summary[
         "gate_pass_rate"
     ] == pytest.approx(2 / 3)
+    assert summary["memory_score_n"] == 3
+    assert summary["gate_passed_memory_score"] == 1
+    assert summary["dimensions"]["inventory"]["n"] == 3
+    assert summary["dimensions"]["environment"]["n"] == 0
     assert (
-        summary["memory_score"] == 1
+        summary["memory_score"] == pytest.approx(2 / 3)
         and "environment.lighting_style" not in summary["metrics"]
     )
 
@@ -791,3 +795,21 @@ def test_memory_object_focus_reaches_gate_and_all_memory_queries(case, tmp_path)
         context["case"]["memory_objects"] == ["red cup only"]
         for context in service.contexts
     )
+
+
+def test_all_gate_failed_scores_are_zero_without_fabricating_inventory_counts():
+    result = {
+        "status": "gate_failed",
+        "memory_score": 0.0,
+        "gate": {"observability": {"label": 0}, "action_following": {"label": 1}},
+        "selected_metrics": ["appearance.visual_appearance"],
+    }
+    summary = summarize([result, {"status": "insufficient_evidence", "gate": None}])
+    assert summary["memory_score"] == 0.0
+    assert summary["memory_score_n"] == 1
+    assert summary["gate_passed_memory_score"] is None
+    assert summary["metrics"]["appearance.visual_appearance"]["mean"] == 0.0
+    assert summary["dimensions"]["appearance"]["n"] == 1
+    assert summary["dimensions"]["inventory"]["mean"] is None
+    assert summary["dimensions"]["environment"]["mean"] is None
+    assert summary["inventory"]["missing_objects"]["n"] == 0

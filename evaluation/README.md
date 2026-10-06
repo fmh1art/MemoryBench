@@ -215,21 +215,26 @@ Persist scored_samples/total_samples, scored_frames/excluded_frames and original
 Demo shows the effective frame count for each submetric. Failed API/schema calls remain evaluation
 errors and are not silently excluded. Optional lighting/style participates only when enabled.
 
-Batch summaries are macro means over cases with valid Memory scores, with per-dimension/per-metric
-sample counts. Each dimension/submetric uses its own valid case count. Inventory ratios use cases with valid Inventory. Missing/spurious counts are computed per
+Batch summaries include Gate-rejected cases as zero scores. The headline memory_score is the
+macro mean of reliable case scores plus these zeros; memory_score_n records its denominator.
+The gate_passed_memory_score retains the conditional mean as a secondary diagnostic.
+Enabled dimension/submetric means and Inventory ratios likewise include Gate-failure zeros.
+Other insufficient_evidence/not_applicable scores remain null and are skipped, as within frames;
+evaluation errors remain errors. Unselected dimensions stay absent/null and never gain zero scores.
+Each mean records n, gate_passed_mean, gate_passed_n and gate_failed_zero_n. Missing/spurious counts are computed per
 frame, averaged over reliable Inventory frames per case, then summed across cases with valid Inventory in the summary;
 this is explicitly labeled as a sum of per-case mean counts, not a count of distinct physical objects.
 Gate pass rates use cases with a valid Gate result; errors before/during Gate are separately counted.
 Always report total cases, gate_evaluated, gate_passed, scored_cases, insufficient_evidence_cases,
-and error_cases alongside memory_score. Never replace excluded cases with zero or compare conditional
-scores without their coverage.
+and error_cases alongside memory_score. Gate failures receive zero by policy; do not turn other
+unreliable results into zero. Report conditional scores with their coverage.
 
 ## Outputs
 
 ```text
 run_001/
   run.json                  protocol, model, execution settings and cases
-  summary.json              Gate rates, conditional memory means and denominators
+  summary.json              Gate rates, all-case means, conditional diagnostics and denominators
   drawer_demo/
     I_gt.jpg, I_gen.jpg      Gate-only 12-frame sheets
     sampling.json           Gate timeline, Read indices and coverage
