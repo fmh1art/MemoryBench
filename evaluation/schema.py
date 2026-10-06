@@ -76,6 +76,17 @@ class Metric(Record):
     status: Literal["scored", "not_applicable", "insufficient_evidence"]
     score: Annotated[int, Field(ge=0, le=5)] | None
     evidence: list[Evidence] = Field(min_length=1)
+    null_reason: (
+        Literal[
+            "reference_unavailable",
+            "natural_occlusion",
+            "generated_failure",
+            "no_matched_objects",
+            "not_applicable",
+            "unknown",
+        ]
+        | None
+    ) = None
 
     @model_validator(mode="after")
     def check_score(self):
@@ -83,4 +94,6 @@ class Metric(Record):
             raise ValueError(
                 "score is an integer 0..5 only when status=scored; otherwise null"
             )
+        if self.status == "scored" and self.null_reason is not None:
+            raise ValueError("Scored metrics must have null_reason=null")
         return self

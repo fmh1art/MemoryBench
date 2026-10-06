@@ -2,7 +2,11 @@
 
 from pydantic import create_model
 
-from ..inventory.scoring import matched_objects, score_inventory
+from ..inventory.scoring import (
+    matched_objects,
+    score_inventory,
+    unmatched_appearance_reason,
+)
 from ..judge import write_json
 from ..schema import Metric, Record
 
@@ -24,6 +28,7 @@ async def judge_appearance(judge, inventory, context, images, output):
         and not inventory.generated_quality_failure
     )
     status = "not_applicable" if reliable else "insufficient_evidence"
+    null_reason = unmatched_appearance_reason(inventory)
     evidence = [
         {
             "frame_indices": [context["memory_frame"]["frame_index"]],
@@ -39,7 +44,15 @@ async def judge_appearance(judge, inventory, context, images, output):
     }
     schema = create_model("AppearanceJudgment", __base__=Record, **fields)
     judgment = schema.model_validate(
-        {key: {"status": status, "score": None, "evidence": evidence} for key in fields}
+        {
+            key: {
+                "status": status,
+                "score": None,
+                "evidence": evidence,
+                "null_reason": null_reason,
+            }
+            for key in fields
+        }
     )
     write_json(
         output / "appearance.derived.json",

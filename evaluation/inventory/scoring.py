@@ -68,3 +68,20 @@ def score_inventory(judgment: Judgment) -> dict:
         "recall": presence,
         "f1": 2 * tp / (gt + gen) if gt + gen else 1.0,
     }
+
+
+def unmatched_appearance_reason(judgment: Judgment) -> str:
+    """Classify derived nulls from annotations, never from free-text keywords."""
+    if matched_objects(judgment):
+        return "unknown"
+    if any(obj.gt_count is None for obj in judgment.objects):
+        return "reference_unavailable"
+    gt = sum(obj.gt_count for obj in judgment.objects)
+    if gt > 0 and (
+        judgment.generated_quality_failure
+        or score_inventory(judgment)["status"] == "scored"
+    ):
+        return "no_matched_objects"
+    if score_inventory(judgment)["status"] == "scored":
+        return "not_applicable"
+    return "unknown"

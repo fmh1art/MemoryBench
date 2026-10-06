@@ -40,6 +40,14 @@ reasoning or a generic assertion.
 2 major error with some correct content; 1 minimal correspondence; 0 absent or fundamentally
 contradictory restoration. Apply the dimension-specific anchors to this pair alone.
 status=scored requires a score. not_applicable and insufficient_evidence require null plus evidence.
+For every null score, supply null_reason: reference_unavailable (GT does not establish this fact),
+natural_occlusion (ordinary occlusion/projection), no_matched_objects (Appearance only),
+not_applicable (no relevant GT property), or unknown (cause cannot be established).
+Scored metrics have null_reason=null. Generated degradation with a clear GT reference is scored 0,
+not excluded. Never use reference_unavailable merely because GEN fails to expose/recover the fact.
+At case aggregation, a whole missing dimension caused by generated failure or confirmed absent
+matches receives zero; a reference-unavailable/unknown dimension stays unresolved. Enabled
+unresolved dimensions must never be silently dropped from the geometric mean.
 not_applicable means GT has no relevant fact for that metric; insufficient_evidence means this
 pair cannot resolve a required fact for reasons other than confirmed generated degradation.
 Uncertainty alone is never automatically zero. For an object target

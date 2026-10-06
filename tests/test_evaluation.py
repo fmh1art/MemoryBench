@@ -249,7 +249,8 @@ def test_geometric_core_dimensions_exclude_environment():
     judgments["spatial"].object_localization = Metric.model_validate(
         metric(None, "insufficient_evidence")
     )
-    assert score_memory(judgments)["memory_score"] == pytest.approx(0.5**0.5)
+    assert score_memory(judgments)["memory_score"] is None
+    assert score_memory(judgments)["incomplete_dimensions"] == ["spatial"]
 
 
 class MockService:
@@ -449,9 +450,11 @@ def test_global_concurrency_across_cases(case, tmp_path):
     assert summary["dimensions"]["inventory"]["n"] == 2
     assert summary["dimensions"]["environment"]["n"] == 0
     assert (
-        summary["memory_score"] == pytest.approx(2 / 3)
+        summary["memory_score"] is None
         and "environment.lighting_style" not in summary["metrics"]
     )
+    assert summary["partial_memory_score"] == pytest.approx(2 / 3)
+    assert summary["benchmark_complete"] is False
 
 
 def test_load_cases_paths_ids_and_duplicate_guard(case, tmp_path):
@@ -808,7 +811,7 @@ def test_gate_rejections_contribute_zero_without_submetric_grades():
         "gate": {"observability": {"label": 0}, "action_following": {"label": 1}},
         "selected_metrics": ["appearance.visual_appearance"],
     }
-    summary = summarize([result, {"status": "insufficient_evidence", "gate": None}])
+    summary = summarize([result])
     assert summary["memory_score"] == 0 and summary["memory_score_n"] == 1
     assert summary["gate_valid_memory_score"] is None
     assert summary["gate_coverage"] == 0.0

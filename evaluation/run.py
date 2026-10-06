@@ -230,7 +230,9 @@ async def run(args):
                     }.items()
                 },
                 "geometric_zero_policy": "exact_zero; positive values evaluated with log/exp",
-                "missing_score_policy": "skip unreliable values and renormalize available weights; report coverage",
+                "missing_score_policy": "skip frame nulls; generated failures zero; whole-dimension failure zero; unresolved enabled dimensions block positive case scores",
+                "whole_dimension_null_policy": "zero only for confirmed generated failure or absent matches; reference-unavailable/unknown stays unresolved",
+                "benchmark_completion_policy": "publish headline only when every case has a determined score; rejected Gates contribute zero",
                 "case_formula": "geometric_mean_of_temporally_averaged_core_dimensions",
                 "appearance_scope": "inventory_matched_instances_only",
                 "memory_sampling_fractions": list(MEMORY_FRACTIONS),

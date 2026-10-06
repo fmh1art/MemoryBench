@@ -3,7 +3,7 @@
 from math import exp, log
 from statistics import mean
 
-from .inventory.scoring import DIAGNOSTICS, score_inventory
+from .inventory.scoring import DIAGNOSTICS, score_inventory, unmatched_appearance_reason
 
 MEMORY_DIMENSIONS = ("inventory", "appearance", "spatial", "environment")
 DEFAULT_DIMENSIONS = ("inventory", "appearance", "spatial")
@@ -21,7 +21,7 @@ WEIGHTS = {
     "spatial.object_localization": 0.4,
     "spatial.relative_spatial_relation": 0.6,
 }
-SCORING_VERSION = "memory.v3.2.gate_failed_zero"
+SCORING_VERSION = "memory.v3.3.complete_dimensions"
 METRIC_NAMES = tuple(
     f"{dim}.{name}" for dim, names in DIMENSION_METRICS.items() for name in names
 )
@@ -65,31 +65,42 @@ def average_records(records, weights=None):
         if scored
         else None
     )
+    reasons = {
+        reason
+        for item in records
+        if item["status"] != "scored"
+        for reason in (
+            item.get("null_reasons") or [item.get("null_reason") or "unknown"]
+        )
+    }
     return {
         "status": status,
         "normalized": normalized,
         "score": 5 * normalized if normalized is not None else None,
         "scored_samples": len(scored),
         "total_samples": len(records),
+        "null_reasons": sorted(reasons) if not scored else [],
     }
 
 
 def memory_from_dimensions(dimensions):
-    """Environment is diagnostic only; exact zeros remain zero without a log(0)."""
+    """Never drop an enabled unresolved core dimension; known zeros remain absorbing."""
     core = [dimensions[name] for name in DEFAULT_DIMENSIONS if name in dimensions]
     values = [item["normalized"] for item in core if item["status"] == "scored"]
+    complete = bool(core) and len(values) == len(core)
+    zero = 0.0 in values
     status = (
         "scored"
-        if values
+        if complete or zero
         else (
             "insufficient_evidence"
-            if any(item["status"] == "insufficient_evidence" for item in core)
+            if values or any(item["status"] == "insufficient_evidence" for item in core)
             else "not_applicable"
         )
     )
     score = (
-        (0.0 if 0.0 in values else exp(mean(log(value) for value in values)))
-        if values
+        (0.0 if zero else exp(mean(log(value) for value in values)))
+        if complete or zero
         else None
     )
     return {
@@ -98,6 +109,11 @@ def memory_from_dimensions(dimensions):
         "memory_score_100": 100 * score if score is not None else None,
         "scored_dimensions": len(values),
         "total_dimensions": len(core),
+        "incomplete_dimensions": [
+            name
+            for name in DEFAULT_DIMENSIONS
+            if name in dimensions and dimensions[name]["status"] != "scored"
+        ],
     }
 
 
@@ -126,6 +142,15 @@ def score_memory(judgments: dict, selected_metrics=None) -> dict:
                     "status": status,
                     "normalized": normalized,
                     "score": 5 * normalized if normalized is not None else None,
+                    "null_reason": None
+                    if normalized is not None
+                    else (
+                        "not_applicable"
+                        if status == "not_applicable"
+                        else "reference_unavailable"
+                        if any(obj.gt_count is None for obj in judgment.objects)
+                        else "unknown"
+                    ),
                 }
             else:
                 metric = getattr(judgment, name)
@@ -135,7 +160,22 @@ def score_memory(judgments: dict, selected_metrics=None) -> dict:
                     "normalized": metric.score / 5
                     if metric.score is not None
                     else None,
+                    "null_reason": metric.null_reason if metric.score is None else None,
                 }
+                # Old derived Appearance can be classified from reliable Inventory annotations.
+                if (
+                    dimension == "appearance"
+                    and metric.score is None
+                    and not metric.null_reason
+                ):
+                    reference = judgments.get("inventory")
+                    if reference is not None:
+                        record["null_reason"] = unmatched_appearance_reason(reference)
+                if record["null_reason"] == "generated_failure":
+                    record.update(
+                        status="scored", score=0, normalized=0.0, null_reason=None
+                    )
+                    record["failure_zero"] = True
             metrics[key] = record
             records.append(record)
             weights.append(WEIGHTS.get(key, 1.0))
@@ -168,6 +208,20 @@ def average_memory_frames(frames):
             records = [frame["scores"][group][name] for frame in frames]
             item = average_records(records)
             item["scored_frames"] = item["scored_samples"]
+            if (
+                group == "dimensions"
+                and item["status"] != "scored"
+                and (
+                    {"generated_failure", "no_matched_objects"}
+                    & set(item["null_reasons"])
+                )
+            ):
+                item.update(
+                    status="scored",
+                    normalized=0.0,
+                    score=0.0,
+                    whole_dimension_failure_zero=True,
+                )
             if group == "dimensions" and name == "inventory":
                 for key in (*DIMENSION_METRICS["inventory"], *DIAGNOSTICS):
                     values = [
@@ -251,6 +305,8 @@ def summarize(results: list[dict]) -> dict:
     memory = macro(
         [item["scores"]["memory_score"] for item in scored] + [0.0] * len(rejected)
     )
+    complete = bool(results) and memory["n"] == len(results)
+    headline = memory["mean"] if complete else None
     coverage = len(eligible) / len(results) if results else None
     return {
         "scoring_version": SCORING_VERSION,
@@ -278,16 +334,17 @@ def summarize(results: list[dict]) -> dict:
                 "error",
             )
         },
-        "memory_score": memory["mean"],
+        "benchmark_complete": complete,
+        "pending_cases": len(results) - memory["n"],
+        "partial_memory_score": memory["mean"],
+        "memory_score": headline,
         "memory_score_n": memory["n"],
         "gate_valid_memory_score": conditional_memory["mean"],
         "gate_valid_memory_score_n": conditional_memory["n"],
         "gate_valid_memory_score_100": 100 * conditional_memory["mean"]
         if conditional_memory["mean"] is not None
         else None,
-        "memory_score_100": 100 * memory["mean"]
-        if memory["mean"] is not None
-        else None,
+        "memory_score_100": 100 * headline if headline is not None else None,
         "dimensions": dimensions,
         "metrics": metrics,
         "inventory": inventory,
@@ -299,8 +356,6 @@ def summarize(results: list[dict]) -> dict:
                 else None
                 for name in DEFAULT_DIMENSIONS
             },
-            "memory_score": 100 * memory["mean"]
-            if memory["mean"] is not None
-            else None,
+            "memory_score": 100 * headline if headline is not None else None,
         },
     }

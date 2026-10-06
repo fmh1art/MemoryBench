@@ -246,3 +246,86 @@ def test_recompute_entire_saved_case_preserves_gate_and_original_files(tmp_path)
     )
     assert (source / "sample/result.json").read_text() == raw
     assert json.loads((output / "summary.json").read_text())["memory_score"] == 0
+
+
+def temporal_case(reason, second_frame_score=None):
+    """Two enabled dimensions, one may have no evaluable frame."""
+    from evaluation.scoring import average_memory_frames
+
+    frames = []
+    for index in (1, 2):
+        app = {
+            "status": "insufficient_evidence",
+            "normalized": None,
+            "null_reasons": [reason],
+        }
+        if index == 2 and second_frame_score is not None:
+            app = {"status": "scored", "normalized": second_frame_score}
+        frames.append(
+            {
+                "status": "insufficient_evidence",
+                "scores": {
+                    "dimensions": {
+                        "appearance": app,
+                        "spatial": {"status": "scored", "normalized": 0.8},
+                    },
+                    "metrics": {},
+                },
+            }
+        )
+    return average_memory_frames(frames)
+
+
+def test_whole_dimension_failure_zero_is_not_dropped():
+    result = temporal_case("no_matched_objects")
+    assert result["dimensions"]["appearance"]["normalized"] == 0
+    assert result["dimensions"]["appearance"]["whole_dimension_failure_zero"]
+    assert result["dimensions"]["appearance"]["scored_frames"] == 0
+    assert result["memory_score"] == 0
+    assert result["total_dimensions"] == result["scored_dimensions"] == 2
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["reference_unavailable", "unknown", "natural_occlusion", "not_applicable"],
+)
+def test_reference_or_unknown_whole_dimension_never_becomes_zero(reason):
+    result = temporal_case(reason)
+    assert result["dimensions"]["appearance"]["normalized"] is None
+    assert result["memory_score"] is None
+    assert result["incomplete_dimensions"] == ["appearance"]
+
+
+def test_some_valid_appearance_frames_do_not_trigger_whole_dimension_zero():
+    result = temporal_case("no_matched_objects", 0.9)
+    assert result["dimensions"]["appearance"]["normalized"] == 0.9
+    assert result["dimensions"]["appearance"]["scored_frames"] == 1
+    assert result["memory_score"] == pytest.approx((0.9 * 0.8) ** 0.5)
+
+
+def test_known_zero_does_not_fabricate_other_dimension_scores():
+    from evaluation.scoring import memory_from_dimensions
+
+    dimensions = {
+        "inventory": {"status": "scored", "normalized": 0},
+        "appearance": {"status": "insufficient_evidence", "normalized": None},
+    }
+    result = memory_from_dimensions(dimensions)
+    assert result["memory_score"] == 0
+    assert result["incomplete_dimensions"] == ["appearance"]
+    assert dimensions["appearance"]["normalized"] is None
+
+
+def test_explicit_generated_failure_is_a_scored_frame_zero():
+    annotation = {
+        "status": "insufficient_evidence",
+        "score": None,
+        "evidence": E,
+        "null_reason": "generated_failure",
+    }
+    spatial = Spatial.model_validate(
+        {"object_localization": annotation, "relative_spatial_relation": metric(5)}
+    )
+    result = score_memory({"spatial": spatial})
+    assert result["metrics"]["spatial.object_localization"]["normalized"] == 0
+    assert result["dimensions"]["spatial"]["normalized"] == 0.6

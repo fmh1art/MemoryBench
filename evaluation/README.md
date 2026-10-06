@@ -1,5 +1,7 @@
 # Memory Evaluation v3
 
+See [Eval Formulation](formulation.md) for the complete Chinese formulation and null/zero rules.
+
 Gate decides whether a case is valid. Memory measures restoration of remembered objects.
 Report **Gate Coverage, Inventory, Appearance, Spatial, Memory Score** separately.
 Gate rejection contributes zero to the headline case/benchmark score; memory submetrics are not
@@ -88,7 +90,8 @@ an unrelated substitution is an unmatched identity, not an appearance-only error
 **Diagnostics only:** Missing Rate=FN/GT, Spurious Rate=FP/max(Gen,1), raw FN/FP, precision and F1.
 They never contribute to Inventory or Memory scores. Empty GT makes presence and Missing Rate
 not_applicable/null; count remains defined (both empty gives 1). No matched targets does not earn
-an Appearance 5 or receive an Appearance 0.
+an Appearance 5 or receive a frame-level Appearance 0. When an entire case has no matched target
+despite a confirmed clear GT target, its case-level Appearance dimension is zero.
 
 For each dimension, average reliable frame scores across the eight pairs, producing Inv_i, App_i,
 Spa_i. **Then** calculate M_i=(Inv_i×App_i×Spa_i)^(1/3). Do not average frame-level geometric means
@@ -101,10 +104,15 @@ unreadable, or natural occlusion/viewpoint prevents comparison. If GT is clear a
 corresponding region but generated degradation makes the fact unreadable, the affected metric is
 scored zero. Inventory keeps unknown counts/diagnostics null and uses generated_quality_failure
 to assign zero Presence/Count; it never invents missing objects from blur. Appearance still only
-evaluates matched instances. Renormalize selected/available submetric weights. If a whole core dimension has no reliable
-score, its case value is null and the geometric mean uses the remaining reliable selected core
-dimensions; persist scored_dimensions/total_dimensions and per-dimension frame coverage. No reliable
-core dimension yields null. A configuration selecting only Environment has no Memory score.
+evaluates matched instances. Renormalize selected/available submetric weights. Every null Metric
+has a structured null_reason: reference_unavailable, natural_occlusion, generated_failure,
+no_matched_objects, not_applicable, or unknown. Legacy missing reasons stay unknown unless reliable
+Inventory annotations establish confirmed absent matches; never classify free-text evidence by keywords.
+If all frame scores for an enabled core dimension are null, confirmed generated failure or absent
+matches makes that case dimension zero (whole_dimension_failure_zero=true). Otherwise keep it null
+and flag the case incomplete. Never compute the geometric mean using only the remaining enabled
+dimensions. A known zero fixes the total at zero even if other dimensions remain unresolved, without
+fabricating their grades. Disabled dimensions are excluded by configuration; Environment is diagnostic.
 
 To update saved results under the generated-failure policy:
 
@@ -122,9 +130,10 @@ Each dimension/submetric benchmark mean uses its own valid case count. Report th
 partial scores should not be interpreted as complete three-dimension assessments.
 
 Benchmark M_Memory=sum(g_i*M_i)/N: failed Gates contribute zero. For a completed benchmark,
-N includes every case. API errors or passed cases without reliable memory scores remain unscored,
-are reported separately, and do not masquerade as Gate failures/zeros. `memory_score_n` reports
-the actual averaging denominator. Also retain the passed-only mean in `gate_valid_memory_score`
+N includes every case. API errors or reference-unavailable/unknown passed cases remain unscored,
+are reported separately, and do not masquerade as Gate failures/zeros. If any case remains unresolved,
+benchmark_complete=false and the headline is null; partial_memory_score exposes the provisional
+mean with memory_score_n scored cases, never a completed all-case score. Also retain the passed-only mean in `gate_valid_memory_score`
 (0–1), `gate_valid_memory_score_100`, and its denominator `gate_valid_memory_score_n`.
 The paper's **Memory Score=100×M_Memory**. Summary memory_score is normalized 0–1;
 memory_score_100 and report.memory_score are the 0–100 headline. report also contains

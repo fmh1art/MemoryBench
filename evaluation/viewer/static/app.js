@@ -257,7 +257,7 @@ function renderCase() {
           ? "Gate 未通过：总分记为 0，并计入全样本平均；Memory 子指标未计算。"
           : "Gate 未通过，样本无效；Memory 未计算，不记零分，仅计入 Gate Coverage。")
         : result.status === "insufficient_evidence"
-          ? "全部采样帧均无可靠综合分；已有子指标结果仍可查看。"
+          ? "有启用维度缺少可靠评价依据，综合分未计算；已有子指标结果仍可查看。"
           : result.status === "not_applicable"
             ? "已启用指标均不适用，综合分未计算；原因见下方 evidence。"
             : "评估调用失败，分数未计算；错误信息见下方。";
