@@ -28,11 +28,18 @@ def load_cases(path: Path) -> list[Case]:
 
 
 async def evaluate_case(
-    case, judge, output, *, tile_width=480, tile_height=320, max_skew_seconds=0.1
+    case,
+    judge,
+    output,
+    *,
+    tile_width=480,
+    tile_height=320,
+    max_skew_seconds=0.1,
+    resume=False,
 ):
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=resume)
     calls = output / "judges"
-    calls.mkdir()
+    calls.mkdir(exist_ok=resume)
     result = {
         "case_id": case.case_id,
         "case": case.model_dump(),
@@ -102,6 +109,10 @@ async def run(args):
         args.retries,
         args.max_tokens,
         extra_body,
+        temperature=None if args.use_default_temperature else 0,
+        qpm=args.qpm,
+        tpm=args.tpm,
+        tokens_per_request=args.tokens_per_request,
     )
     try:
         # Refuse overwrites to keep runs auditable. Create only after validating all case inputs.
@@ -116,6 +127,10 @@ async def run(args):
                 "timeout": args.timeout,
                 "retries": args.retries,
                 "max_tokens": args.max_tokens,
+                "temperature": None if args.use_default_temperature else 0,
+                "qpm": args.qpm,
+                "tpm": args.tpm,
+                "tokens_per_request": args.tokens_per_request,
                 "tile_width": args.tile_width,
                 "tile_height": args.tile_height,
                 "max_skew_seconds": args.max_skew_seconds,
@@ -187,6 +202,23 @@ def main():
         help="Additional attempts after transport/JSON/schema failures",
     )
     parser.add_argument("--max-tokens", type=positive_int, default=4096)
+    parser.add_argument(
+        "--use-default-temperature",
+        action="store_true",
+        help="Omit temperature for models that reject temperature=0",
+    )
+    parser.add_argument(
+        "--qpm", type=positive_int, help="Global requests per minute budget"
+    )
+    parser.add_argument(
+        "--tpm", type=positive_int, help="Global reserved tokens per minute budget"
+    )
+    parser.add_argument(
+        "--tokens-per-request",
+        type=positive_int,
+        default=20000,
+        help="Conservative input+output token reservation for TPM pacing",
+    )
     parser.add_argument("--tile-width", type=positive_int, default=480)
     parser.add_argument("--tile-height", type=positive_int, default=320)
     parser.add_argument("--max-skew-seconds", type=float, default=0.1)

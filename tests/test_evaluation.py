@@ -468,3 +468,77 @@ def test_inventory_rejects_duplicate_and_empty_groups():
         Inventory.model_validate(data)
     with pytest.raises(ValidationError, match="absent in both"):
         inventory([(0, 0)])
+
+
+def test_rate_pacer_uses_stricter_budget_and_does_not_burst(monkeypatch):
+    from evaluation.rate_limit import RequestPacer
+
+    clock = [0.0]
+    monkeypatch.setattr("evaluation.rate_limit.time.monotonic", lambda: clock[0])
+
+    async def advance(delay):
+        clock[0] += delay
+
+    monkeypatch.setattr("evaluation.rate_limit.asyncio.sleep", advance)
+
+    async def execute():
+        pacer = RequestPacer(qpm=300, tpm=60000, tokens_per_request=10000)
+        starts = []
+        for _ in range(3):
+            await pacer.wait()
+            starts.append(clock[0])
+        assert starts == [0, 10, 20]
+        clock[0] = 100
+        await pacer.wait()
+        await pacer.wait()
+        assert clock[0] == 110  # no catching up after idle time
+        with pytest.raises(ValueError, match="exceeding"):
+            pacer.observe({"total_tokens": 11000})
+
+    asyncio.run(execute())
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"qpm": 0}, {"tpm": float("nan")}, {"tpm": 100, "tokens_per_request": 101}],
+)
+def test_rate_pacer_rejects_invalid_limits(kwargs):
+    from evaluation.rate_limit import RequestPacer
+
+    with pytest.raises(ValueError):
+        RequestPacer(**kwargs)
+
+
+def test_temperature_can_be_omitted_for_terra(case, tmp_path):
+    service = MockService()
+    service.outputs["gate"]["observability"]["label"] = 0
+
+    async def handle(request):
+        assert "temperature" not in json.loads(request.content)
+        return await service(request)
+
+    async def execute():
+        judge = Judge(
+            "https://mock.test",
+            "terra",
+            temperature=None,
+            transport=httpx.MockTransport(handle),
+        )
+        try:
+            return await evaluate_case(case, judge, tmp_path / "default-temp")
+        finally:
+            await judge.close()
+
+    assert asyncio.run(execute())["status"] == "gate_failed"
+
+
+def test_connection_timeout_does_not_use_full_generation_timeout():
+    async def execute():
+        judge = Judge("https://mock.test", "mock", timeout=240)
+        try:
+            assert judge.client.timeout.connect == 15
+            assert judge.client.timeout.read == 240
+        finally:
+            await judge.close()
+
+    asyncio.run(execute())

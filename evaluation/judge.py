@@ -12,6 +12,7 @@ from .appearance.schema import Judgment as Appearance
 from .environment.schema import Judgment as Environment
 from .gate.schema import Judgment as Gate
 from .inventory.schema import Judgment as Inventory
+from .rate_limit import RequestPacer
 from .spatial.schema import Judgment as Spatial
 
 ROOT = Path(__file__).parent
@@ -72,6 +73,10 @@ class Judge:
         max_tokens=4096,
         extra_body=None,
         transport=None,
+        temperature=0,
+        qpm=None,
+        tpm=None,
+        tokens_per_request=20000,
     ):
         if (
             concurrency < 1
@@ -96,9 +101,14 @@ class Judge:
             )
         self.endpoint, self.model, self.api_key = endpoint, model, api_key
         self.retries, self.max_tokens, self.extra_body = retries, max_tokens, extra_body
+        self.temperature = temperature
+        self.pacer = RequestPacer(qpm, tpm, tokens_per_request)
+        self.enforce_token_reservation = tpm is not None
         self.limit = asyncio.Semaphore(concurrency)
         self.client = httpx.AsyncClient(
-            timeout=timeout, trust_env=False, transport=transport
+            timeout=httpx.Timeout(timeout, connect=min(timeout, 15)),
+            trust_env=False,
+            transport=transport,
         )
         self.common = (ROOT / "common.md").read_text()
         self.rubrics = {
@@ -147,14 +157,13 @@ class Judge:
                 for label, path in zip(("I_gt", "I_gen"), images)
             ],
             "max_tokens": self.max_tokens,
-            "temperature": 0,
+            "temperature": self.temperature,
             "attempts": [],
         }
         repair = ""
         for attempt in range(self.retries + 1):
             body = {
                 "model": self.model,
-                "temperature": 0,
                 "max_tokens": self.max_tokens,
                 "stream": False,
                 "response_format": {"type": "json_object"},
@@ -168,6 +177,8 @@ class Judge:
                 ],
                 **self.extra_body,
             }
+            if self.temperature is not None:
+                body["temperature"] = self.temperature
             event = {"attempt": attempt + 1}
             retryable = True
             try:
@@ -175,6 +186,7 @@ class Judge:
                     {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
                 )
                 async with self.limit:
+                    await self.pacer.wait()
                     response = await self.client.post(
                         self.endpoint, json=body, headers=headers
                     )
@@ -187,6 +199,13 @@ class Judge:
                     raise ValueError(f"VLM HTTP {response.status_code}")
                 payload = response.json()
                 event["usage"] = payload.get("usage")
+                if self.enforce_token_reservation:
+                    # This is a configuration failure, not a reason to repeat a charged request.
+                    try:
+                        self.pacer.observe(event["usage"])
+                    except ValueError:
+                        retryable = False
+                        raise
                 choice = payload["choices"][0]
                 raw = choice["message"]["content"]
                 event["response_text"] = raw

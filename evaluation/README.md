@@ -185,3 +185,32 @@ image payloads are not logged. Keep the videos and output artifacts with experim
 
 Run the focused regression tests with `python -m pytest tests/test_evaluation.py -q`.
 They use synthetic videos and a mocked VLM service; no remote VLM or credentials are needed.
+
+## Service limits and default temperature
+
+For services that only accept their model's default temperature, add
+`--use-default-temperature` to omit the temperature parameter. The default remains 0 for
+other services. Connection establishment is limited to the smaller of 15 seconds and
+`--timeout`; response reads retain the full `--timeout` so stalled connections do not hold
+Judge slots for the entire generation timeout.
+
+`--qpm` and `--tpm` enable global pacing inside the concurrency limit, including retries.
+`--tokens-per-request` reserves a conservative input-plus-output token count (default 20000).
+Requests are spaced by the greater of `60/qpm` and `60*tokens_per_request/tpm`; idle time does
+not accumulate a burst allowance. Set the reservation after inspecting pilot-call usage,
+including both contact sheets, prompt/schema and maximum output. Usage above the reservation
+is reported as a configuration error and is not retried. Leave headroom below service limits,
+especially if the same model quota is shared by other jobs.
+
+For a dedicated gpt-5.6-terra quota of QPM=300 and TPM=2430000, a conservative starting point is:
+
+```bash
+python -m evaluation.run --cases cases.json --endpoint "$VLM_ENDPOINT" \
+  --model gpt-5.6-terra --output evaluation_results/terra \
+  --use-default-temperature --concurrency 32 --case-workers 8 \
+  --qpm 270 --tpm 2187000 --tokens-per-request 20000 --max-tokens 8192
+```
+
+This starts at most about 109 requests/minute with the 20000-token reservation, retaining 10%
+quota headroom. Concurrency controls latency overlap; it does not replace rate limits. Decrease
+the reservation only after measured pilot usage justifies it.
