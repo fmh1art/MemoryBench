@@ -253,7 +253,9 @@ function renderCase() {
     result.status === "scored"
       ? "维度分数范围 0–1；先平均各维度的有效帧，再对 Inventory / Appearance / Spatial 取几何平均。Environment 仅作诊断。展开下方可查看原始标注与证据。"
       : result.status === "gate_failed"
-        ? "Gate 未通过，样本无效；Memory 未计算，不记零分，仅计入 Gate Coverage。"
+        ? (result.case_aggregation_policy === "all_cases_gate_failed_zero"
+          ? "Gate 未通过：总分记为 0，并计入全样本平均；Memory 子指标未计算。"
+          : "Gate 未通过，样本无效；Memory 未计算，不记零分，仅计入 Gate Coverage。")
         : result.status === "insufficient_evidence"
           ? "全部采样帧均无可靠综合分；已有子指标结果仍可查看。"
           : result.status === "not_applicable"
@@ -877,7 +879,7 @@ async function init() {
     for (const [label, value] of [
       ["Model", data.model],
       ["Cases", data.cases.length],
-      ["可评分", `${data.summary.scored_cases ?? "—"}/${data.cases.length}`],
+      [data.summary.case_aggregation_policy === "all_cases_gate_failed_zero" ? "计入总分" : "可评分", `${data.summary.case_aggregation_policy === "all_cases_gate_failed_zero" ? (data.summary.memory_score_n ?? "—") : (data.summary.scored_cases ?? "—")}/${data.cases.length}`],
       [
         "Gate Coverage",
         typeof (data.summary.gate_coverage ?? data.summary.gate_pass_rate) === "number"
@@ -890,6 +892,7 @@ async function init() {
           ? (typeof data.summary.memory_score_100 === "number" ? data.summary.memory_score_100.toFixed(2) : "—")
           : score(data.summary.memory_score),
       ],
+      ...(data.summary.case_aggregation_policy === "all_cases_gate_failed_zero" ? [["Gate 通过均分 / 100", typeof data.summary.gate_valid_memory_score_100 === "number" ? data.summary.gate_valid_memory_score_100.toFixed(2) : "—"]] : []),
       ...["inventory", "appearance", "spatial"].map((key) => [
         DIMENSIONS[key], score(data.summary.dimensions?.[key]?.mean),
       ]),

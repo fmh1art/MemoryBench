@@ -374,7 +374,7 @@ def test_gate_failure_skips_all_memory_judges(case, tmp_path, label):
     service = MockService()
     service.outputs["gate"][label]["label"] = 0
     result = run_mock(case, tmp_path / label, service)
-    assert result["status"] == "gate_failed" and result["memory_score"] is None
+    assert result["status"] == "gate_failed" and result["memory_score"] == 0
     assert service.calls == ["gate"]
 
 
@@ -443,12 +443,13 @@ def test_global_concurrency_across_cases(case, tmp_path):
     assert summary["gate_evaluated"] == 3 and summary[
         "gate_pass_rate"
     ] == pytest.approx(2 / 3)
-    assert summary["memory_score_n"] == 2
+    assert summary["memory_score_n"] == 3
+    assert summary["gate_valid_memory_score_n"] == 2
     assert summary["gate_coverage"] == 0.5
     assert summary["dimensions"]["inventory"]["n"] == 2
     assert summary["dimensions"]["environment"]["n"] == 0
     assert (
-        summary["memory_score"] == 1
+        summary["memory_score"] == pytest.approx(2 / 3)
         and "environment.lighting_style" not in summary["metrics"]
     )
 
@@ -800,7 +801,7 @@ def test_memory_object_focus_reaches_gate_and_all_memory_queries(case, tmp_path)
     )
 
 
-def test_gate_rejections_are_excluded_from_memory_not_zero():
+def test_gate_rejections_contribute_zero_without_submetric_grades():
     result = {
         "status": "gate_failed",
         "memory_score": None,
@@ -808,7 +809,8 @@ def test_gate_rejections_are_excluded_from_memory_not_zero():
         "selected_metrics": ["appearance.visual_appearance"],
     }
     summary = summarize([result, {"status": "insufficient_evidence", "gate": None}])
-    assert summary["memory_score"] is None and summary["memory_score_n"] == 0
+    assert summary["memory_score"] == 0 and summary["memory_score_n"] == 1
+    assert summary["gate_valid_memory_score"] is None
     assert summary["gate_coverage"] == 0.0
     assert summary["dimensions"]["appearance"]["mean"] is None
     assert summary["inventory"]["missing_objects"]["n"] == 0

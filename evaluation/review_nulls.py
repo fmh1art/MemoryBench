@@ -139,7 +139,10 @@ def apply_review(frame, review, expected):
 
 
 def recompute(result):
+    result["case_aggregation_policy"] = "all_cases_gate_failed_zero"
+    result["scoring_version"] = SCORING_VERSION
     if result["status"] == "gate_failed":
+        result["memory_score"] = 0.0
         return result
     for frame in result["memory_frames"]:
         judgments = {}
@@ -310,6 +313,7 @@ async def review_results(source, output, judge):
     run = json.loads((source / "run.json").read_text())
     run.update(
         scoring_version=SCORING_VERSION,
+        case_aggregation_policy="all_cases_gate_failed_zero",
         null_policy_source=str(source),
         null_review=progress(False),
     )

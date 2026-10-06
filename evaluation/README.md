@@ -2,7 +2,8 @@
 
 Gate decides whether a case is valid. Memory measures restoration of remembered objects.
 Report **Gate Coverage, Inventory, Appearance, Spatial, Memory Score** separately.
-Gate rejection is not a memory zero. Environment and inventory error breakdowns are diagnostics.
+Gate rejection contributes zero to the headline case/benchmark score; memory submetrics are not
+judged and stay uncomputed. Environment and inventory error breakdowns are diagnostics.
 
 ## Structure
 
@@ -48,7 +49,7 @@ A frame before Read or with unresolvable target facts may be insufficient_eviden
 ## Judge order and scope
 
 1. Gate returns independent Observability and Action Following labels in one query.
-2. If either label is zero, stop: status=gate_failed, memory_score=null.
+2. If either label is zero, stop: status=gate_failed, memory_score=0; do not judge Memory submetrics.
 3. For every Memory pair, Inventory and Spatial run concurrently.
 4. Appearance waits for Inventory's semantic matching, then evaluates only matched instances.
    Missing GT targets and unmatched additions do not lower Appearance. Partial matching evaluates
@@ -120,7 +121,11 @@ the same weighted frame scores, temporal dimension averages and geometric case s
 Each dimension/submetric benchmark mean uses its own valid case count. Report these denominators;
 partial scores should not be interpreted as complete three-dimension assessments.
 
-Benchmark M_Memory=mean(M_i for valid Gate-passed cases with reliable Memory scores).
+Benchmark M_Memory=sum(g_i*M_i)/N: failed Gates contribute zero. For a completed benchmark,
+N includes every case. API errors or passed cases without reliable memory scores remain unscored,
+are reported separately, and do not masquerade as Gate failures/zeros. `memory_score_n` reports
+the actual averaging denominator. Also retain the passed-only mean in `gate_valid_memory_score`
+(0–1), `gate_valid_memory_score_100`, and its denominator `gate_valid_memory_score_n`.
 The paper's **Memory Score=100×M_Memory**. Summary memory_score is normalized 0–1;
 memory_score_100 and report.memory_score are the 0–100 headline. report also contains
 Gate Coverage percent and dimension scores on the 0–100 scale. Do not silently turn API/schema

@@ -21,7 +21,7 @@ WEIGHTS = {
     "spatial.object_localization": 0.4,
     "spatial.relative_spatial_relation": 0.6,
 }
-SCORING_VERSION = "memory.v3.1.generated_failure_zero"
+SCORING_VERSION = "memory.v3.2.gate_failed_zero"
 METRIC_NAMES = tuple(
     f"{dim}.{name}" for dim, names in DIMENSION_METRICS.items() for name in names
 )
@@ -244,11 +244,17 @@ def summarize(results: list[dict]) -> dict:
         inventory[key].update(
             total=sum(values), unit="sum of per-case mean counts across frames"
         )
-    memory = macro([item["scores"]["memory_score"] for item in scored])
+    conditional_memory = macro([item["scores"]["memory_score"] for item in scored])
+    # A failed Gate contributes zero without inventing unmeasured submetric grades.
+    # API errors and unresolved passed cases remain unscored, never automatic zeros.
+    rejected = [item for item in results if item["status"] == "gate_failed"]
+    memory = macro(
+        [item["scores"]["memory_score"] for item in scored] + [0.0] * len(rejected)
+    )
     coverage = len(eligible) / len(results) if results else None
     return {
         "scoring_version": SCORING_VERSION,
-        "case_aggregation_policy": "gate_valid_memory_only",
+        "case_aggregation_policy": "all_cases_gate_failed_zero",
         "total_cases": len(results),
         "gate_evaluated": len(gates),
         "gate_passed": len(eligible),
@@ -274,6 +280,11 @@ def summarize(results: list[dict]) -> dict:
         },
         "memory_score": memory["mean"],
         "memory_score_n": memory["n"],
+        "gate_valid_memory_score": conditional_memory["mean"],
+        "gate_valid_memory_score_n": conditional_memory["n"],
+        "gate_valid_memory_score_100": 100 * conditional_memory["mean"]
+        if conditional_memory["mean"] is not None
+        else None,
         "memory_score_100": 100 * memory["mean"]
         if memory["mean"] is not None
         else None,
