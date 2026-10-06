@@ -183,12 +183,12 @@ def inventory(pairs, assessable=True):
 
 def test_inventory_counts_missing_spurious_and_normalization():
     scores = score_inventory(inventory([(3, 1), (1, 2), (0, 1)]))
-    assert scores["object_presence"] == 1
-    assert scores["object_count"] == pytest.approx(5 / 18)
+    assert scores["object_presence"] == 0.5
+    assert scores["object_count"] == 1.0
     assert scores["missing_objects"] == scores["spurious_objects"] == 2
     assert scores["precision"] == scores["recall"] == scores["f1"] == 0.5
-    assert scores["normalized"] == pytest.approx(16 / 27)
-    assert scores["score"] == pytest.approx(80 / 27)
+    assert scores["normalized"] == pytest.approx(0.65)
+    assert scores["score"] == pytest.approx(3.25)
 
 
 @pytest.mark.parametrize(
@@ -231,7 +231,7 @@ def test_metric_evidence_read_only_and_optional_style():
         validate_evidence("environment", env, [9, 12], False)
 
 
-def test_equal_dimension_weights_not_metric_count():
+def test_geometric_core_dimensions_exclude_environment():
     data = replies()
     data["appearance"]["visual_appearance"] = metric(0)
     judgments = {
@@ -241,15 +241,15 @@ def test_equal_dimension_weights_not_metric_count():
         "environment": Environment.model_validate(data["environment"]),
     }
     result = score_memory(judgments)
-    assert result["memory_score"] == 0.875  # (1 + .5 + 1 + 1) / 4
+    assert result["memory_score"] == pytest.approx(0.5 ** (1 / 3))
     judgments["spatial"].relative_spatial_relation = Metric.model_validate(
         metric(None, "not_applicable")
     )
-    assert score_memory(judgments)["memory_score"] == 0.875
+    assert score_memory(judgments)["memory_score"] == pytest.approx(0.5 ** (1 / 3))
     judgments["spatial"].object_localization = Metric.model_validate(
         metric(None, "insufficient_evidence")
     )
-    assert score_memory(judgments)["memory_score"] == pytest.approx(5 / 6)
+    assert score_memory(judgments)["memory_score"] == pytest.approx(0.5**0.5)
 
 
 class MockService:
@@ -374,7 +374,7 @@ def test_gate_failure_skips_all_memory_judges(case, tmp_path, label):
     service = MockService()
     service.outputs["gate"][label]["label"] = 0
     result = run_mock(case, tmp_path / label, service)
-    assert result["status"] == "gate_failed" and result["memory_score"] == 0.0
+    assert result["status"] == "gate_failed" and result["memory_score"] is None
     assert service.calls == ["gate"]
 
 
@@ -442,12 +442,12 @@ def test_global_concurrency_across_cases(case, tmp_path):
     assert summary["gate_evaluated"] == 3 and summary[
         "gate_pass_rate"
     ] == pytest.approx(2 / 3)
-    assert summary["memory_score_n"] == 3
-    assert summary["gate_passed_memory_score"] == 1
-    assert summary["dimensions"]["inventory"]["n"] == 3
+    assert summary["memory_score_n"] == 2
+    assert summary["gate_coverage"] == 0.5
+    assert summary["dimensions"]["inventory"]["n"] == 2
     assert summary["dimensions"]["environment"]["n"] == 0
     assert (
-        summary["memory_score"] == pytest.approx(2 / 3)
+        summary["memory_score"] == 1
         and "environment.lighting_style" not in summary["metrics"]
     )
 
@@ -616,7 +616,8 @@ def test_only_selected_submetrics_are_judged_and_scored(case, tmp_path):
     selected = select_metrics(metrics=["appearance.visual_appearance"])
     result = run_mock(case, tmp_path / "selected", service, selected_metrics=selected)
     assert result["status"] == "scored"
-    assert service.calls == ["gate"] + ["appearance"] * 8
+    assert service.calls.count("gate") == 1
+    assert service.calls.count("inventory") == service.calls.count("appearance") == 8
     assert set(result["scores"]["dimensions"]) == {"appearance"}
     assert set(result["scores"]["metrics"]) == {"appearance.visual_appearance"}
     assert set(result["memory_frames"][0]["judgments"]["appearance"]) == {
@@ -635,7 +636,8 @@ def test_environment_can_be_explicitly_enabled(case, tmp_path):
         service,
         selected_metrics=select_metrics(["environment"]),
     )
-    assert result["status"] == "scored"
+    assert result["status"] == "not_applicable" and result["memory_score"] is None
+    assert result["scores"]["dimensions"]["environment"]["normalized"] == 1.0
     assert service.calls.count("environment") == 8
     assert "inventory" not in service.calls
 
@@ -694,8 +696,8 @@ def test_frame_averaging_retains_not_applicable_and_uses_available_denominator()
                 "status": "not_applicable",
                 "memory_score": None,
                 "scores": {
-                    "dimensions": {"environment": dict(item)},
-                    "metrics": {"environment.lighting_style": dict(item)},
+                    "dimensions": {"spatial": dict(item)},
+                    "metrics": {"spatial.object_localization": dict(item)},
                 },
             }
         )
@@ -797,19 +799,93 @@ def test_memory_object_focus_reaches_gate_and_all_memory_queries(case, tmp_path)
     )
 
 
-def test_all_gate_failed_scores_are_zero_without_fabricating_inventory_counts():
+def test_gate_rejections_are_excluded_from_memory_not_zero():
     result = {
         "status": "gate_failed",
-        "memory_score": 0.0,
+        "memory_score": None,
         "gate": {"observability": {"label": 0}, "action_following": {"label": 1}},
         "selected_metrics": ["appearance.visual_appearance"],
     }
     summary = summarize([result, {"status": "insufficient_evidence", "gate": None}])
-    assert summary["memory_score"] == 0.0
-    assert summary["memory_score_n"] == 1
-    assert summary["gate_passed_memory_score"] is None
-    assert summary["metrics"]["appearance.visual_appearance"]["mean"] == 0.0
-    assert summary["dimensions"]["appearance"]["n"] == 1
-    assert summary["dimensions"]["inventory"]["mean"] is None
-    assert summary["dimensions"]["environment"]["mean"] is None
+    assert summary["memory_score"] is None and summary["memory_score_n"] == 0
+    assert summary["gate_coverage"] == 0.0
+    assert summary["dimensions"]["appearance"]["mean"] is None
     assert summary["inventory"]["missing_objects"]["n"] == 0
+
+
+def test_weighted_scores_and_case_geometric_mean():
+    app = Appearance.model_validate(
+        {"visual_appearance": metric(5), "geometry_shape": metric(5)}
+    )
+    spa = Spatial.model_validate(
+        {"object_localization": metric(0), "relative_spatial_relation": metric(5)}
+    )
+    scores = score_memory(
+        {
+            "inventory": inventory([(3, 1), (1, 2), (0, 1)]),
+            "appearance": app,
+            "spatial": spa,
+        }
+    )
+    assert scores["dimensions"]["spatial"]["normalized"] == pytest.approx(0.6)
+    assert scores["memory_score"] == pytest.approx((0.65 * 1 * 0.6) ** (1 / 3))
+    assert scores["memory_score_100"] == pytest.approx(100 * scores["memory_score"])
+    assert "inventory.f1" not in scores["metrics"]
+
+
+def test_case_geometric_mean_follows_temporal_dimension_means():
+    frames = []
+    for inv, app in [(0, 1), (1, 0)]:
+        dimensions = {
+            name: {"status": "scored", "normalized": value}
+            for name, value in [("appearance", app), ("spatial", 1)]
+        }
+        # Use core dimension placeholders to isolate temporal ordering from inventory diagnostics.
+        dimensions["appearance"]["normalized"] = inv
+        dimensions["spatial"]["normalized"] = app
+        frames.append(
+            {
+                "status": "scored",
+                "memory_score": 0.0,
+                "scores": {"dimensions": dimensions, "metrics": {}},
+            }
+        )
+    score = average_memory_frames(frames)
+    assert score["memory_score"] == pytest.approx(0.5)
+    assert (
+        score["memory_score"] != 0.0
+    )  # Averaging per-frame geometric scores would give zero.
+
+
+def test_missing_targets_do_not_invoke_appearance_or_receive_an_appearance_zero(
+    case, tmp_path
+):
+    service = MockService()
+    service.outputs["inventory"] = inventory([(1, 0)]).model_dump()
+    result = run_mock(case, tmp_path / "missing", service)
+    assert result["status"] == "scored" and result["memory_score"] == 0.0
+    assert "appearance" not in service.calls
+    assert all(
+        frame["judgments"]["appearance"]["visual_appearance"]["status"]
+        == "not_applicable"
+        for frame in result["memory_frames"]
+    )
+    assert (tmp_path / "missing/judges/frame_1/appearance.derived.json").exists()
+
+
+def test_appearance_receives_inventory_matches_only(case, tmp_path):
+    service = MockService()
+    service.outputs["inventory"] = inventory([(1, 1), (1, 0), (0, 1)]).model_dump()
+    result = run_mock(case, tmp_path / "matching", service)
+    assert result["status"] == "scored"
+    contexts = [
+        context for context in service.contexts if "appearance_matching" in context
+    ]
+    assert len(contexts) == 8
+    assert all(
+        len(context["appearance_matching"]["objects"]) == 1 for context in contexts
+    )
+    assert all(
+        context["appearance_matching"]["objects"][0]["matched_count"] == 1
+        for context in contexts
+    )

@@ -12,8 +12,8 @@ case description defines the target and Read operation, never substitutes for GT
 Compare all assessable target facts in this pair. If the target region is occluded, outside the
 view or too unclear, use insufficient_evidence/null with concrete evidence. A clearly inspected
 empty Gen region where GT contains a target is an actual failure, not uncertainty. An offscreen
-GT target is not proof that Gen has forgotten it. Missing targets must not be excused because
-another dimension also captures the error. Do not infer invisible counts, shape, depth or attributes.
+GT target is not proof that Gen has forgotten it. Inventory and Spatial score confirmed missing-target errors. Appearance evaluates only Inventory-matched
+instances; missing/unmatched targets are excluded from Appearance to avoid duplicate penalties. Do not infer invisible counts, shape, depth or attributes.
 
 TARGET SCOPE: When case.memory_objects is nonempty, it is the explicit Read-memory focus list.
 Assess those objects and their relevant target regions; do not broaden a named list into all

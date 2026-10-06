@@ -2,16 +2,20 @@
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 from math import isfinite
 from pathlib import Path
 
+from .appearance.judge import judge_appearance
 from .judge import Judge, write_json
 from .schema import Case
 from .scoring import (
     MEMORY_DIMENSIONS,
     METRIC_NAMES,
+    SCORING_VERSION,
+    WEIGHTS,
     average_memory_frames,
     score_memory,
     select_metrics,
@@ -64,9 +68,10 @@ async def evaluate_case(
         "status": "error",
         "gate": None,
         "memory_score": None,
-        "protocol": "memory_evaluation.frame_pairs.v2",
+        "protocol": "memory_evaluation.frame_pairs.v3",
         "aggregation_policy": "skip_unreliable_scores",
-        "case_aggregation_policy": "gate_failed_zero_skip_unreliable",
+        "case_aggregation_policy": "gate_valid_memory_only",
+        "scoring_version": SCORING_VERSION,
         "selected_metrics": list(selected_metrics),
     }
     try:
@@ -82,7 +87,7 @@ async def evaluate_case(
         passed = gate.observability.label == 1 and gate.action_following.label == 1
         if not passed:
             result["status"] = "gate_failed"
-            result["memory_score"] = 0.0
+            result["memory_score"] = None
         else:
             memory_sampling = await asyncio.to_thread(
                 make_memory_pairs, case, output, sampling
@@ -104,11 +109,27 @@ async def evaluate_case(
                     output / "memory_frames" / f"{index}_{role}.jpg"
                     for role in ("gt", "gen")
                 )
+                inventory_task = (
+                    asyncio.create_task(
+                        judge.ask("inventory", frame_context, images, frame_calls)
+                    )
+                    if "inventory" in dimensions or "appearance" in dimensions
+                    else None
+                )
+
+                async def ask_dimension(dimension):
+                    if dimension == "inventory":
+                        return await inventory_task
+                    if dimension != "appearance":
+                        return await judge.ask(
+                            dimension, frame_context, images, frame_calls
+                        )
+                    return await judge_appearance(
+                        judge, await inventory_task, frame_context, images, frame_calls
+                    )
+
                 replies = await asyncio.gather(
-                    *(
-                        judge.ask(dim, frame_context, images, frame_calls)
-                        for dim in dimensions
-                    ),
+                    *(ask_dimension(dim) for dim in dimensions),
                     return_exceptions=True,
                 )
                 errors = {
@@ -194,10 +215,24 @@ async def run(args):
         write_json(
             args.output / "run.json",
             {
-                "protocol": "memory_evaluation.frame_pairs.v2",
+                "protocol": "memory_evaluation.frame_pairs.v3",
                 "aggregation_policy": "skip_unreliable_scores",
-                "case_aggregation_policy": "gate_failed_zero_skip_unreliable",
+                "case_aggregation_policy": "gate_valid_memory_only",
+                "scoring_version": SCORING_VERSION,
                 "selected_metrics": list(selected_metrics),
+                "weights": WEIGHTS,
+                "rubric_sha256": {
+                    name: hashlib.sha256(text.encode()).hexdigest()
+                    for name, text in {
+                        "common": judge.common,
+                        "memory_common": judge.memory_common,
+                        **judge.rubrics,
+                    }.items()
+                },
+                "geometric_zero_policy": "exact_zero; positive values evaluated with log/exp",
+                "missing_score_policy": "skip unreliable values and renormalize available weights; report coverage",
+                "case_formula": "geometric_mean_of_temporally_averaged_core_dimensions",
+                "appearance_scope": "inventory_matched_instances_only",
                 "memory_sampling_fractions": list(MEMORY_FRACTIONS),
                 "memory_image_max_side": 1024,
                 "model": args.model,

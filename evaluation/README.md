@@ -1,312 +1,165 @@
-# Memory Evaluation
+# Memory Evaluation v3
 
-A reference-based evaluation of the world state recovered after a memory Read.
-Each case needs **GT video + Gen video + a short case description**. Gate uses one query with two 12-frame sheets. When both binary labels pass, Memory uses eight
-independent GT/Gen single-frame pairs from the middle 80% of the shared video. Each enabled
-dimension gets one query per pair; eight scores are averaged. Environment is disabled by default.
+Gate decides whether a case is valid. Memory measures restoration of remembered objects.
+Report **Gate Coverage, Inventory, Appearance, Spatial, Memory Score** separately.
+Gate rejection is not a memory zero. Environment and inventory error breakdowns are diagnostics.
 
-## Files
+## Structure
 
 ```text
 evaluation/
-  gate/          schema.py + rubric.md: Observability, Action Following (binary)
-  inventory/     schema.py + rubric.md + scoring.py: semantic annotations → Python metrics
-  appearance/    schema.py + rubric.md: Visual Appearance, Geometry / Shape (0–5)
-  spatial/       schema.py + rubric.md: Object Localization, Relative Spatial Relation (0–5)
-  environment/   schema.py + rubric.md: Scene Structure, Background Appearance,
-                                       optional Lighting / Style (0–5)
-  common.md      Gate contact-sheet reference/evidence rules
-  memory_common.md single-pair reference/evidence rules
-  schema.py      case, evidence and metric contracts
-  video.py       aligned Gate sheets and eight independent Memory image pairs
-  judge.py       asynchronous VLM client, validation, retries and call records
-  scoring.py     normalization and aggregation
-  run.py         single/batch CLI
-  cases.example.json
+  gate/            binary Observability + Action Following schema and rubric
+  inventory/       semantic count annotations, instance matching and Python formulas
+  appearance/      matched objects only: appearance and shape rubrics
+  spatial/         placement and relations rubrics, tolerant of camera differences
+  environment/     optional background diagnostics, excluding memory targets
+  common.md        Gate reference/evidence instructions
+  memory_common.md standalone pair reference/evidence instructions
+  video.py         aligned Gate sheets and eight standalone Memory pairs
+  judge.py         bounded async requests, validation, retries and call records
+  scoring.py       weighted dimensions, temporal averages, geometric mean, summary
+  run.py           single/batch evaluation
+  viewer/          read-only demo: videos, images, scores and evidence
 ```
 
-The rubrics are intentionally separate from orchestration code. Every judge sees the shared
-rules, its dimension rubric, the case/sampling metadata, the output JSON Schema, and exactly
-two separately labeled images: **I_gt is the GT reference; I_gen is the generated video**.
-GT defines correctness. No judge compares which video is more attractive.
+## Inputs and sampling
 
-## Run
+A JSON list supplies case_id, gt_video, gen_video, memory_target, action_description,
+success_criterion and read_start_seconds. Optional memory_objects names the specific Read targets;
+matching GT case.json metadata is loaded automatically when that list is absent. Annotations set
+scope, never replace visual evidence. GT must cover the same Read operation as Gen; the benchmark
+reference is ground_truth/future.mp4, not its shorter evaluation-only clip.
 
-Python 3.11+. Install from the repository root:
+Both timelines use decoded PTS and explicit gt_start_seconds/gen_start_seconds offsets. Use their
+shared duration, never independently stretch time. Reject misaligned frames beyond
+--max-skew-seconds (default 0.12), missing Read coverage or invalid clips.
 
-```bash
-python -m pip install -r requirements-eval.txt
-# Create cases.json using evaluation/cases.example.json as the format example.
-# The example paths are placeholders, not bundled test videos.
-export MEM_BENCH_API_KEY='your-service-key'
-python -m evaluation.run \
-  --cases cases.json \
-  --endpoint http://127.0.0.1:8000/v1/chat/completions \
-  --model your-vlm \
-  --output evaluation_results/run_001 \
-  --concurrency 8 --case-workers 2
-```
+Gate uses one query: two independent 2×6 sheets with 12 uniformly sampled, aligned frames.
+Timestamp every tile. Resize and pad to preserve aspect ratio; never stretch.
+Each Judge receives I_gt labeled GT REFERENCE and I_gen labeled GENERATED VIDEO.
+GT defines expected state, not aesthetic preference. All judgments require frame evidence.
 
-`--cases` is a nonempty JSON array; a single element runs one case. Video paths are relative
-to that JSON file. IDs must be unique and safe directory names. Output must be a new directory.
-Credentials come from the environment and are never written into configuration snapshots.
-The service must support multimodal chat-completions, inline JPEGs and `response_format=json_object`.
-Responses are validated locally against Pydantic schemas, including integer scores and evidence frames.
-Unselected submetrics are absent from the response schema and do not affect averages.
-`--extra-body provider.json` allows provider-specific options, e.g.
-`{"chat_template_kwargs":{"enable_thinking":false}}`; it cannot replace prompts, model or JSON mode.
-The old TOML configuration/old evaluation commands are no longer used.
+Memory uses **eight aligned timestamps uniformly spanning 10%–90% of the shared video**, including
+both endpoints. These are not samples of a separately stretched Read interval. Each query receives
+exactly two standalone images, no collage or overlays; cap the longest side at 1024 without
+upscaling/stretching. Record requested/decoded timestamps and whether each lies in Read.
+A frame before Read or with unresolvable target facts may be insufficient_evidence.
 
-`--concurrency` bounds all in-flight VLM requests across cases, including Gate and retries.
-`--case-workers` bounds simultaneous cases and video preparation. Within a passing case, the eight pairs and their enabled dimension Judges run concurrently.
-Defaults are Inventory, Appearance and Spatial: 1 Gate + 8×3 Memory requests per passing case;
-transport, JSON or schema failures allow up to `--retries` additional attempts (default 2).
-Every attempt is recorded. HTTP 4xx errors other than 408/429 fail immediately. An evaluation error
-sets the case status to `error` and makes the CLI exit 1 after other cases finish; gate rejection or
-insufficient visual evidence is a valid evaluation outcome and does not cause exit 1.
+## Judge order and scope
 
-## Select dimensions or submetrics
+1. Gate returns independent Observability and Action Following labels in one query.
+2. If either label is zero, stop: status=gate_failed, memory_score=null.
+3. For every Memory pair, Inventory and Spatial run concurrently.
+4. Appearance waits for Inventory's semantic matching, then evaluates only matched instances.
+   Missing GT targets and unmatched additions do not lower Appearance. Partial matching evaluates
+   all matched instances, not just the best ones. No confirmed match gives not_applicable/null;
+   unresolved matching gives insufficient_evidence/null. These empty-match results are derived
+   from Inventory and recorded without an unnecessary Appearance VLM call.
+5. Optional Environment runs concurrently and remains outside the core Memory score.
 
-Default: Inventory, Appearance and Spatial; Environment makes no calls and contributes no score.
-Choose whole dimensions with `--dimensions`, or exact submetrics with `--metrics` (mutually exclusive):
+Observability evaluates generated visual quality: persistent severe blur, ghosting, artificial
+veiling or scene-wide corruption. A clear empty/wrong scene or natural occlusion does not fail it.
+Action Following checks the correct physical operation/target-region access. Ignore remembered
+contents in a success criterion: opening the correct drawer still succeeds if its contents differ.
 
-```bash
-# Append to the run command to enable Environment explicitly.
---dimensions inventory appearance spatial environment
+Selecting only Appearance still requires Inventory annotation for matching, but Inventory scores
+are not added to that selected score. Eight pairs and separate cases run concurrently, bounded by
+one shared request semaphore and QPM/TPM pacer. Every actual attempt, including retries, is recorded.
 
-# Judge only these two submetrics, one query per dimension per pair.
---metrics appearance.visual_appearance spatial.relative_spatial_relation
-```
+## Formulas
 
-Available submetrics: inventory.object_presence, inventory.object_count, inventory.f1;
-appearance.visual_appearance, appearance.geometry_shape;
-spatial.object_localization, spatial.relative_spatial_relation;
-environment.scene_structure, environment.background_appearance, environment.lighting_style.
-Inventory always needs semantic object counts; Python computes its diagnostics and averages only
-the selected Inventory submetrics. Lighting/style additionally needs `lighting_style=true` in the
-case; otherwise it remains not_applicable. Selection is recorded in run.json and every result.
+For case i, g_i = observability_i × action_following_i. Gate Coverage = sum(g_i)/N.
+Do not multiply this coverage into the headline Memory score.
 
-## Case description and timeline
+VLM identifies mutually exclusive semantic object groups with GT/Gen counts. Python matches
+interchangeable instances within each group: TP=sum(min(gt_count, gen_count)). GT=sum(gt_count),
+Gen=sum(gen_count), FN=GT−TP, FP=Gen−TP. Stable identity may survive changed color, shape or placement;
+an unrelated substitution is an unmatched identity, not an appearance-only error.
 
-Required fields: case_id, gt_video, gen_video, memory_target, action_description,
-success_criterion, read_start_seconds. The target should unambiguously name the object(s) or
-inventory region. Describe the future action and its visible success condition; do not disclose
-expected counts/appearance as a substitute for reference-image evidence.
-
-Optional `memory_objects` is the explicit list of objects tested by this Read. When nonempty,
-Memory Judges focus only on that list. Gate uses it to identify the requested Read/action context;
-Observability evaluates generated video quality and does not require the target objects to appear. If omitted, the case loader reads `metadata.memory_objects` from the matching
-GT case's adjacent `case.json`, then `description.json`. It validates the annotation's case identity,
-records memory_objects_source, and preserves explicit caller overrides. For generic videos or
-annotations without an object list, memory_target remains the fallback scope. Names/descriptions
-identify what to inspect; GT images still establish actual presence, counts and placement.
-
-Optional read_end_seconds defaults to the shared clip end. The inclusive Read interval is the
-post-action evaluation interval, not the historical memory-writing interval. Earlier frames show
-action context. Provide clips containing the Read operation if success requires proving motion.
-Existing annotations can supply memory_target, action_description and success_criterion, but the
-Read time must be supplied on the paired video timeline. No hidden mapping from old case assets.
-
-Optional gt_start_seconds and gen_start_seconds identify each video's local time corresponding
-to experiment t=0. Defaults are both zero. Each video's local clock is decoded PTS minus its first
-frame PTS. Offsets align known clip starts; **do not independently normalize video duration**.
-If the clips share the same physical start, leave both offsets zero.
-
-## Gate: two images, twelve aligned frames
-
-1. Decode timestamps and determine the common interval from experiment t=0 to the earlier last frame.
-2. Request 12 uniformly spaced times, including both endpoints, on this shared physical timeline.
-3. In each video choose the nearest actual frame to each requested time. Check requested-to-actual
-   errors and GT-to-Gen actual-time skew against `--max-skew-seconds` (default 0.1 s); violations are
-   input errors, not memory failures. No interpolation or time warping.
-4. Compose independent I_gt.jpg and I_gen.jpg, each 2 rows × 6 columns, in chronological order.
-   Every tile shows frame number, shared requested t and actual decoded frame time. Resize with
-   aspect ratio preserved and center-pad; never stretch. Default content tile is 480×320.
-5. Pass both images to the single Gate query. Observability evidence cites Read tiles; Action
-   Following may cite any tile. Both labels must be 1 before any Memory images or calls are made.
-
-A timestamp request need not coincide exactly with a real frame at another frame rate; both the
-small tolerance and actual times are recorded. A short/sparse clip can repeat the same real frame;
-unique-frame counts expose this, without pretending those are independent observations. Video tail
-outside the overlap is excluded and its duration recorded; align/trim inputs deliberately. If the
-Read interval lies outside overlap or uniform sampling misses it, the case fails with an input error.
-With only 12 views, unobserved temporal failures cannot be assessed; use clips covering the relevant
-Read operation and state, and retain this sampling protocol when comparing models.
-
-## Memory: eight independent image pairs
-
-Request frames at **10% through 90%, eight evenly spaced timestamps** of the entire shared video interval used by Gate, including
-the endpoints of its middle 80%. This is not an independently stretched per-video clock or the
-middle 80% of the Read interval. Record requested and actual timestamps, decoded indices and whether
-each sample lies in Read. The same alignment tolerance applies as for Gate.
-
-Save sixteen standalone JPEGs (eight GT/Gen pairs). Each preserves the decoded image's aspect ratio; cap its longest side
-at 1024 pixels without upscaling or stretching. No sheets, borders, timestamp overlays or additional
-views are included in Memory queries. Timestamp/index labels are supplied as text metadata.
-
-Judge each pair independently against GT with the enabled dimension rubrics. Memory evidence must
-cite only that pair's index (1–8), a separate index space from Gate's sheet tiles (1–12). Never use
-another pair to resolve occlusion or infer a hidden object. A global Gate pass does not guarantee
-that every single sampled view can resolve every submetric. A sample before Read or with an
-uninspectable target can therefore return insufficient_evidence, with its images and explanation
-retained for review. Samples are never silently moved to a more convenient timestamp.
-
-## Judgments and evidence
-
-Gate outputs independent 0/1 labels. It passes only when both Observability and Action Following
-are 1. Observability evaluates generated visual quality/legibility, not whether target objects are
-present or visible. A clearly rendered scene with missing/wrong targets, a clear empty tabletop,
-normal opaque occlusion or an offscreen target can pass. Reject genuine persistent severe blur,
-artificial veiling, ghosting or scene corruption; use GT to distinguish artifacts from normal scene
-content. Action Following separately checks the requested operation and region access. Individual
-Memory frames can still be insufficient_evidence after Gate passes, and those values are skipped
-when computing means. A failed Gate has no
-memory score, and no memory judges run. Report Gate pass rates separately from conditional memory scores.
-
-Inventory returns mutually exclusive semantic object groups, reference/generated integer counts,
-and evidence for this pair. It never returns numeric quality scores. Null counts or an unassessable
-region leave Inventory unscored; do not silently drop unknown groups. Counts are physical visible
-objects in this single snapshot. Attribute drift alone should not manufacture missing-plus-spurious
-identities; no adjacent-view evidence or counting across timestamps is allowed.
-
-Other metrics output `{status, score, evidence}`. Each rubric defines specific anchors for every
-integer 0–5. `scored` requires an integer; `not_applicable` and `insufficient_evidence` require null.
-Missing targets in clearly visible expected regions are actual scored failures. Spatial judges use
-stable world anchors and tolerate small camera differences. Environment explicitly excludes memory
-targets. Lighting / Style is disabled unless lighting_style=true; a disabled metric is not_applicable.
-
-Every decision and metric, every inventory group, and the overall inventory assessment provide
-frame-index evidence describing concrete GT/Gen facts. Gate timestamps are saved in sampling.json; Memory timestamps in memory_sampling.json. The
-response validator rejects Memory evidence citing any pair other than the one supplied.
-
-## Deterministic scores
-
-For inventory groups i, let g_i and p_i be GT and Gen counts, and m_i=min(g_i,p_i):
-
-| Quantity | Definition |
+| Dimension | Normalized score per frame |
 |---|---|
-| Object Presence | Fraction of GT groups with p_i>0; semantic group presence, not instance recall |
-| Object Count | Mean of 1−abs(g_i−p_i)/max(g_i,p_i), over the union of nonempty GT/Gen groups |
-| Missing Objects | sum(g_i−m_i) |
-| Spurious Objects | sum(p_i−m_i) |
-| Precision | sum(m_i)/sum(p_i) |
-| Recall | sum(m_i)/sum(g_i) |
-| F1 | 2×sum(m_i)/(sum(g_i)+sum(p_i)) |
-| Inventory normalized | Mean(Object Presence, Object Count, F1) |
+| Inventory | 0.7 × presence + 0.3 × count |
+| Presence | TP / (TP + FN), i.e. instance recall, not fraction of object groups |
+| Count | 1 − abs(Gen − GT) / max(Gen, GT, 1), using total counts |
+| Appearance | 0.5 × visual/5 + 0.5 × shape/5, matched instances only |
+| Spatial | 0.4 × localization/5 + 0.6 × relation/5 |
 
-These are macro group presence/count scores and instance-based precision/recall/F1. Extra groups
-lower Object Count and F1 even if all GT groups remain present. Missing/spurious counts are diagnostic
-counts and are not normalized by five. Inventory's equivalent raw score is 5×normalized and can be
-fractional; it is computed by code, not an ordinal VLM score.
+**Diagnostics only:** Missing Rate=FN/GT, Spurious Rate=FP/max(Gen,1), raw FN/FP, precision and F1.
+They never contribute to Inventory or Memory scores. Empty GT makes presence and Missing Rate
+not_applicable/null; count remains defined (both empty gives 1). No matched targets does not earn
+an Appearance 5 or receive an Appearance 0.
 
-If both regions are visibly empty, Presence/Count/Precision/Recall/F1 all equal 1. If GT is empty but
-Gen is not, Presence/Count/F1/Precision are 0 and Recall is 1. If GT is nonempty and Gen empty,
-Presence/Count/F1/Precision/Recall are 0. These conventions make correct empty restoration score 1.
+For each dimension, average reliable frame scores across the eight pairs, producing Inv_i, App_i,
+Spa_i. **Then** calculate M_i=(Inv_i×App_i×Spa_i)^(1/3). Do not average frame-level geometric means
+instead: nonlinear aggregation would give a different case score. Environment never participates.
+A real zero stays exactly zero; use log/exp only for positive inputs, avoiding log(0) without
+artificially lifting failures to epsilon.
 
-Other metric scores normalize as score/5. Within each pair, average selected applicable submetrics
-within a dimension, then average selected applicable dimensions with equal weights.
-At every averaging step, include only reliable `scored` values: skip insufficient_evidence and
-not_applicable instead of assigning zero. Within a pair, average valid submetrics into dimensions
-and valid dimensions into its Memory score. Across the eight pairs, independently average valid
-pair scores, dimension scores and submetric scores. A real score of zero remains in the denominator.
-A metric, dimension or case with no valid scores stays null; preserve insufficient_evidence when
-visibility is unresolved, otherwise not_applicable. Different means can have different denominators.
-Persist scored_samples/total_samples, scored_frames/excluded_frames and original per-frame statuses;
-Demo shows the effective frame count for each submetric. Failed API/schema calls remain evaluation
-errors and are not silently excluded. Optional lighting/style participates only when enabled.
+As previously agreed, skip insufficient_evidence/not_applicable rather than replacing them with
+zero. Renormalize selected/available submetric weights. If a whole core dimension has no reliable
+score, its case value is null and the geometric mean uses the remaining reliable selected core
+dimensions; persist scored_dimensions/total_dimensions and per-dimension frame coverage. No reliable
+core dimension yields null. A configuration selecting only Environment has no Memory score.
+Each dimension/submetric benchmark mean uses its own valid case count. Report these denominators;
+partial scores should not be interpreted as complete three-dimension assessments.
 
-Batch summaries include Gate-rejected cases as zero scores. The headline memory_score is the
-macro mean of reliable case scores plus these zeros; memory_score_n records its denominator.
-The gate_passed_memory_score retains the conditional mean as a secondary diagnostic.
-Enabled dimension/submetric means and Inventory ratios likewise include Gate-failure zeros.
-Other insufficient_evidence/not_applicable scores remain null and are skipped, as within frames;
-evaluation errors remain errors. Unselected dimensions stay absent/null and never gain zero scores.
-Each mean records n, gate_passed_mean, gate_passed_n and gate_failed_zero_n. Missing/spurious counts are computed per
-frame, averaged over reliable Inventory frames per case, then summed across cases with valid Inventory in the summary;
-this is explicitly labeled as a sum of per-case mean counts, not a count of distinct physical objects.
-Gate pass rates use cases with a valid Gate result; errors before/during Gate are separately counted.
-Always report total cases, gate_evaluated, gate_passed, scored_cases, insufficient_evidence_cases,
-and error_cases alongside memory_score. Gate failures receive zero by policy; do not turn other
-unreliable results into zero. Report conditional scores with their coverage.
+Benchmark M_Memory=mean(M_i for valid Gate-passed cases with reliable Memory scores).
+The paper's **Memory Score=100×M_Memory**. Summary memory_score is normalized 0–1;
+memory_score_100 and report.memory_score are the 0–100 headline. report also contains
+Gate Coverage percent and dimension scores on the 0–100 scale. Do not silently turn API/schema
+errors into invalid visibility or zeros; report error_cases separately.
 
-## Outputs
+## Running
+
+```bash
+python -m evaluation.run \
+  --cases cases.json --output results/new_run \
+  --endpoint https://your-endpoint/chat/completions --model your-vlm \
+  --api-key-env MEMORYBENCH_API_KEY \
+  --concurrency 32 --case-workers 16 \
+  --qpm 270 --tpm 2187000 --tokens-per-request 9000 \
+  --max-tokens 4096 --timeout 240 --retries 3
+```
+
+Default dimensions: Inventory, Appearance, Spatial. --dimensions or --metrics selects enabled
+scores; use --dimensions inventory appearance spatial environment to add Environment diagnostics.
+Inventory.f1 is not a selectable score. Lighting/style is optional per case.
+--use-default-temperature omits temperature for endpoints that require their default.
+New output directories are required, preventing accidental result overwrites.
+
+Default maximum: 1 Gate + 8×3 Memory queries per passing case. No-match Appearance derivations
+reduce that count. Gate rejection produces only the Gate call. Image preparation, dependency calls,
+errors, retry attempts and schema validation remain auditable.
 
 ```text
-run_001/
-  run.json                  protocol, model, execution settings and cases
-  summary.json              Gate rates, all-case means, conditional diagnostics and denominators
-  drawer_demo/
-    I_gt.jpg, I_gen.jpg      Gate-only 12-frame sheets
-    sampling.json           Gate timeline, Read indices and coverage
-    memory_sampling.json    eight aligned timestamps (absent if Gate fails)
-    memory_frames/          1_gt.jpg, 1_gen.jpg, ... 8_gt.jpg, 8_gen.jpg
+run/
+  run.json              v3 protocol, formulas, weights, rubric hashes and execution settings
+  summary.json          separate Gate Coverage, memory means, diagnostics and denominators
+  case_id/
+    result.json         status, targets, Gate, per-frame scores and aggregate scores
+    I_gt.jpg, I_gen.jpg Gate sheets
+    sampling.json       Gate timeline and Read indices
+    memory_sampling.json eight aligned timestamps, absent for rejected cases
+    memory_frames/     1_gt.jpg, 1_gen.jpg, ... 8_gt.jpg, 8_gen.jpg
     judges/
-      gate.json             one binary Gate call, prompt/schema/usage/all attempts
-      frame_1/              enabled dimension records for pair #1
-        inventory.json      absent when Inventory is disabled
-        appearance.json
+      gate.json        prompts/schema/context/images and all charged/failed attempts
+      frame_1/
+        inventory.json
+        appearance.json or appearance.derived.json
         spatial.json
-      frame_2/ ... frame_4/  independent calls; Environment only when enabled
-    result.json             status, evidence-bearing judgments, derived scores/errors
 ```
 
-Rubric text and response schemas are stored in every call record. Provider error bodies and base64
-image payloads are not logged. Keep the videos and output artifacts with experiment records.
+Rubric changes require new VLM judgments: v2 Appearance scores penalized absent targets, whereas
+v3 excludes them. Never rebrand those old labels as v3 by recomputing Python formulas alone.
+Within a v3 interrupted run, exact matching inputs/model/rubrics/schema may reuse successful calls;
+preserve unsuccessful attempts when repairing failures.
 
-Run the focused regression tests with `python -m pytest tests/test_evaluation.py -q`.
-They use synthetic videos and a mocked VLM service; no remote VLM or credentials are needed.
-
-## Service limits and default temperature
-
-For services that only accept their model's default temperature, add
-`--use-default-temperature` to omit the temperature parameter. The default remains 0 for
-other services. Connection establishment is limited to the smaller of 15 seconds and
-`--timeout`; response reads retain the full `--timeout` so stalled connections do not hold
-Judge slots for the entire generation timeout.
-
-`--qpm` and `--tpm` enable global pacing inside the concurrency limit, including retries.
-`--tokens-per-request` reserves a conservative input-plus-output token count (default 20000).
-Requests are spaced by the greater of `60/qpm` and `60*tokens_per_request/tpm`; idle time does
-not accumulate a burst allowance. Set the reservation after inspecting pilot-call usage,
-including both contact sheets, prompt/schema and maximum output. Usage above the reservation
-is reported as a configuration error and is not retried. Leave headroom below service limits,
-especially if the same model quota is shared by other jobs.
-
-For a dedicated gpt-5.6-terra quota of QPM=300 and TPM=2430000, a conservative starting point is:
+## Demo
 
 ```bash
-python -m evaluation.run --cases cases.json --endpoint "$VLM_ENDPOINT" \
-  --model gpt-5.6-terra --output evaluation_results/terra \
-  --use-default-temperature --concurrency 32 --case-workers 8 \
-  --qpm 270 --tpm 2187000 --tokens-per-request 20000 --max-tokens 8192
+python -m evaluation.viewer.server --results results/new_run --port 8765
 ```
 
-This starts at most about 109 requests/minute with the 20000-token reservation, retaining 10%
-quota headroom. Concurrency controls latency overlap; it does not replace rate limits. Decrease
-the reservation only after measured pilot usage justifies it.
-
-## Local result viewer
-
-Browse saved results without making new Judge calls. The viewer needs only Python's standard
-library and serves the paired videos referenced by each `result.json`.
-
-```bash
-python -m evaluation.viewer.server \
-  --results /home/fanmeihao/data/acwm/eval_results/_evaluation/terra_frames4_pilot10_20261006 \
-  --port 8765
-```
-
-Open <http://127.0.0.1:8765>. Search cases or targets, filter by category/status, and sort by Memory
-score. Each v2 case shows the eight standalone image pairs and their individual scores, the valid-frame
-average scores and raw submetric means. Select a frame to inspect its Inventory counts, 0–5
-Judge scores and evidence. Disabled dimensions say so. Gate uses a separate 12-frame sheet tab;
-Gate evidence indices are never treated as Memory pair indices. Legacy v1 outputs remain supported. Use the video tab
-for synchronized playback/seek, or expand the sheets at their original resolution. Case URLs
-include a shareable `#case_id` fragment. Gate failures and insufficient evidence retain their
-status and null overall score.
-
-On a remote server, forward port 8765 through SSH (`ssh -L 8765:127.0.0.1:8765 user@server`),
-then open the same local URL. `--host` changes the bind address; the default is loopback.
-Artifacts are read when the server starts; restart after replacing result files. Keep the
-referenced GT/Gen videos available to enable playback. Run the viewer regressions with
-`python -m pytest tests/test_evaluation_viewer.py -q`.
+Open http://127.0.0.1:8765. Compare Gate sheets, eight standalone pairs or synchronized videos.
+Select a pair to inspect Inventory annotations, 0–5 VLM scores and evidence. Gate-rejected cases
+have no Memory score. Disabled dimensions say so. Historical v2 scores retain their version label.

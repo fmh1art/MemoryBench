@@ -46,7 +46,9 @@ justify 0. Do not invent a quality defect to explain a missing memory object.
 **Action Following (0/1).** Return 1 when Gen visibly achieves action_description and
 success_criterion during/after the Read operation: e.g. the intended drawer opens, the intended
 container is revealed, or the camera turns to the specified target region. Use the temporal sequence
-and GT as reference for what the successful read reveals. Allow small timing/trajectory/viewpoint
+and GT as reference for the requested physical operation and access. If success_criterion also names
+remembered contents (e.g. an empty drawer or a red block), ignore that content clause for this Gate:
+opening the right drawer/lifting the right cup succeeds even if the restored contents are wrong. Allow small timing/trajectory/viewpoint
 differences if the same semantic endpoint and access are achieved. Return 0 for wrong region/container,
 wrong operation, no meaningful action, or evidence too weak to establish success. A generated clip
 already at the requested final view can establish success only when the requested criterion is the

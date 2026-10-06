@@ -209,9 +209,7 @@ function renderCase() {
     ["Memory", result.memory_score],
     ...Object.keys(DIMENSIONS).map((key) => [
       DIMENSIONS[key],
-      result.status === "gate_failed"
-        ? 0
-        : result.scores?.dimensions?.[key]?.normalized,
+      result.scores?.dimensions?.[key]?.normalized,
     ]),
   ];
   $("score-cards").replaceChildren(
@@ -224,10 +222,10 @@ function renderCase() {
         !result.selected_metrics.some((metric) => metric.startsWith(key + "."));
       const number = element(
         "div",
-        disabled ? "未启用" : score(value),
+        disabled ? "未启用" : score(name === "Memory" && result.protocol?.endsWith("v3") && typeof value === "number" ? 100 * value : value),
         "score-value",
       );
-      if (!disabled) number.append(element("span", "/ 1", "score-scale"));
+      if (!disabled) number.append(element("span", name === "Memory" && result.protocol?.endsWith("v3") ? "/ 100" : "/ 1", "score-scale"));
       const bar = element("div", undefined, "bar");
       const fill = element("div", undefined, "bar-fill");
       fill.style.width =
@@ -253,9 +251,9 @@ function renderCase() {
   );
   $("score-note").textContent =
     result.status === "scored"
-      ? "分数范围 0–1；展开下方指标可查看 Judge 的 0–5 原始分及证据。Inventory 分数由语义计数计算。"
+      ? "维度分数范围 0–1；先平均各维度的有效帧，再对 Inventory / Appearance / Spatial 取几何平均。Environment 仅作诊断。展开下方可查看原始标注与证据。"
       : result.status === "gate_failed"
-        ? "Gate 未通过，Memory Judge 未执行；该样本按 0 分计入全量平均分。"
+        ? "Gate 未通过，样本无效；Memory 未计算，不记零分，仅计入 Gate Coverage。"
         : result.status === "insufficient_evidence"
           ? "全部采样帧均无可靠综合分；已有子指标结果仍可查看。"
           : result.status === "not_applicable"
@@ -270,15 +268,15 @@ function renderCase() {
   state.frame = result.memory_sampling
     ? 1
     : (sampling?.read_frame_indices?.[0] ?? 1);
-  $("tab-sheets").textContent = result.protocol?.endsWith("v2")
+  $("tab-sheets").textContent = result.protocol?.includes("frame_pairs.")
     ? "Gate · 12 帧拼图"
     : "拼图对照";
   $("tab-frames").textContent = result.memory_sampling
     ? `Memory · ${result.memory_sampling.frames.length} 组单帧`
     : "逐帧放大";
   $("tab-frames").disabled =
-    result.protocol?.endsWith("v2") && !result.memory_sampling;
-  if (result.protocol?.endsWith("v2"))
+    result.protocol?.includes("frame_pairs.") && !result.memory_sampling;
+  if (result.protocol?.includes("frame_pairs."))
     $("score-note").textContent +=
       result.memory_sampling
         ? ` Memory 使用 ${result.memory_sampling.fractions.map((f) => `${(f * 100).toFixed(2)}%`).join(" / ")} 的 ${result.memory_sampling.frames.length} 组独立单帧；平均分跳过无法可靠评分的数据；有效帧数见下方。`
@@ -294,12 +292,12 @@ function renderFrameOverview() {
   $("frame-overview").hidden = !frames;
   if (!frames) return;
   const wrapper = element("div");
-  wrapper.append(element("h2", "四帧评分与平均分"));
+  wrapper.append(element("h2", `${frames.length} 帧维度评分与 Case 汇总`));
   if (result.scores?.scored_frames !== undefined) {
     wrapper.append(
       element(
         "p",
-        `Memory 有效帧 ${result.scores.scored_frames} / ${result.memory_sampling.frames.length}；不可靠或不适用的分数跳过，零分正常参与平均。`,
+        `有可靠维度的帧 ${result.scores.scored_frames} / ${result.memory_sampling.frames.length}；不可靠或不适用的分数跳过，零分正常参与平均。`,
         "small muted",
       ),
     );
@@ -311,7 +309,7 @@ function renderFrameOverview() {
   );
   for (const label of [
     "采样帧 / 时间",
-    "Memory",
+    result.protocol?.endsWith("v3") ? "Frame Memory / 100" : "Frame Memory / 1",
     ...enabled.map((dim) => DIMENSIONS[dim]),
     "状态",
   ])
@@ -322,7 +320,7 @@ function renderFrameOverview() {
     const label = element("td");
     const button = element(
       "button",
-      `#${frame.frame_index} · ${20 * frame.frame_index}% · ${seconds(frame.time_seconds)}`,
+      `#${frame.frame_index} · ${(100 * result.memory_sampling.fractions[frame.frame_index - 1]).toFixed(2)}% · ${seconds(frame.time_seconds)}`,
       "frame-link",
     );
     button.addEventListener("click", () => {
@@ -332,7 +330,7 @@ function renderFrameOverview() {
       renderJudgments();
     });
     label.append(button);
-    row.append(label, element("td", score(frame.memory_score), "numeric"));
+    row.append(label, element("td", score(result.protocol?.endsWith("v3") && typeof frame.memory_score === "number" ? 100 * frame.memory_score : frame.memory_score), "numeric"));
     for (const dim of enabled)
       row.append(
         element(
@@ -479,9 +477,11 @@ function renderJudgments() {
       for (const [key, label] of [
         ["object_presence", "Presence"],
         ["object_count", "Count accuracy"],
-        ["precision", "Precision"],
+        ["precision", "Precision · diagnostic"],
+        ["missing_rate", "Missing Rate · diagnostic"],
+        ["spurious_rate", "Spurious Rate · diagnostic"],
         ["recall", "Recall"],
-        ["f1", "F1"],
+        ["f1", "F1 · diagnostic"],
         ["missing_objects", "Missing"],
         ["spurious_objects", "Spurious"],
       ]) {
@@ -870,12 +870,20 @@ async function init() {
       ["Cases", data.cases.length],
       ["可评分", `${data.summary.scored_cases ?? "—"}/${data.cases.length}`],
       [
-        "Gate 通过",
-        typeof data.summary.gate_pass_rate === "number"
-          ? `${(100 * data.summary.gate_pass_rate).toFixed(1)}%`
+        "Gate Coverage",
+        typeof (data.summary.gate_coverage ?? data.summary.gate_pass_rate) === "number"
+          ? `${(100 * (data.summary.gate_coverage ?? data.summary.gate_pass_rate)).toFixed(1)}%`
           : "—",
       ],
-      ["Memory 全量均值", score(data.summary.memory_score)],
+      [
+        data.protocol?.endsWith("v3") ? "Memory / 100" : "Memory v2 / 1",
+        data.protocol?.endsWith("v3")
+          ? (typeof data.summary.memory_score_100 === "number" ? data.summary.memory_score_100.toFixed(2) : "—")
+          : score(data.summary.memory_score),
+      ],
+      ...["inventory", "appearance", "spatial"].map((key) => [
+        DIMENSIONS[key], score(data.summary.dimensions?.[key]?.mean),
+      ]),
     ]) {
       const item = element("span", label);
       item.append(element("strong", value));
@@ -883,7 +891,7 @@ async function init() {
     }
     const linked =
       decodeURIComponent(location.hash.slice(1)) ||
-      (data.protocol?.endsWith("v2")
+      (data.protocol?.includes("frame_pairs.")
         ? state.cases.find((item) => item.status === "scored")?.case_id
         : "");
     state.selected = state.cases.some((item) => item.case_id === linked)
