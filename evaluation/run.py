@@ -65,6 +65,7 @@ async def evaluate_case(
         "gate": None,
         "memory_score": None,
         "protocol": "memory_evaluation.frame_pairs.v2",
+        "aggregation_policy": "skip_unreliable_scores",
         "selected_metrics": list(selected_metrics),
     }
     try:
@@ -192,6 +193,7 @@ async def run(args):
             args.output / "run.json",
             {
                 "protocol": "memory_evaluation.frame_pairs.v2",
+                "aggregation_policy": "skip_unreliable_scores",
                 "selected_metrics": list(selected_metrics),
                 "memory_sampling_fractions": [0.2, 0.4, 0.6, 0.8],
                 "memory_image_max_side": 1024,

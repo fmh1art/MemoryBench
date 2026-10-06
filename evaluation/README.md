@@ -191,16 +191,19 @@ Presence/Count/F1/Precision/Recall are 0. These conventions make correct empty r
 
 Other metric scores normalize as score/5. Within each pair, average selected applicable submetrics
 within a dimension, then average selected applicable dimensions with equal weights.
-The final case score is the arithmetic mean of all **four** pair scores; final dimension/submetric
-scores are also four-pair means. This keeps each timestamp equally weighted. Optional lighting/style,
-when enabled, participates equally within Environment. A submetric not_applicable in all four views stays excluded with its status retained. A mixture
-of scored and not_applicable views cannot produce a four-score mean and is marked insufficient_evidence. Any `insufficient_evidence` metric makes the case memory score null; any failed judge makes
-it an evaluation error. Partial dimension results remain available for inspection, but cannot inflate
-the headline score by selecting only easy observations.
+At every averaging step, include only reliable `scored` values: skip insufficient_evidence and
+not_applicable instead of assigning zero. Within a pair, average valid submetrics into dimensions
+and valid dimensions into its Memory score. Across the four pairs, independently average valid
+pair scores, dimension scores and submetric scores. A real score of zero remains in the denominator.
+A metric, dimension or case with no valid scores stays null; preserve insufficient_evidence when
+visibility is unresolved, otherwise not_applicable. Different means can have different denominators.
+Persist scored_samples/total_samples, scored_frames/excluded_frames and original per-frame statuses;
+Demo shows the effective frame count for each submetric. Failed API/schema calls remain evaluation
+errors and are not silently excluded. Optional lighting/style participates only when enabled.
 
-Batch summaries are macro means over complete `scored` cases only, with per-dimension/per-metric
-sample counts. Inventory ratios use the same cases. Missing/spurious counts are computed per
-frame, averaged over four frames per case, then summed across complete cases in the summary;
+Batch summaries are macro means over cases with valid Memory scores, with per-dimension/per-metric
+sample counts. Each dimension/submetric uses its own valid case count. Inventory ratios use cases with valid Inventory. Missing/spurious counts are computed per
+frame, averaged over reliable Inventory frames per case, then summed across cases with valid Inventory in the summary;
 this is explicitly labeled as a sum of per-case mean counts, not a count of distinct physical objects.
 Gate pass rates use cases with a valid Gate result; errors before/during Gate are separately counted.
 Always report total cases, gate_evaluated, gate_passed, scored_cases, insufficient_evidence_cases,
@@ -275,7 +278,7 @@ python -m evaluation.viewer.server \
 ```
 
 Open <http://127.0.0.1:8765>. Search cases or targets, filter by category/status, and sort by Memory
-score. Each v2 case shows the four standalone image pairs and their individual scores, the four-frame
+score. Each v2 case shows the four standalone image pairs and their individual scores, the valid-frame
 average scores and raw submetric means. Select a frame to inspect its Inventory counts, 0–5
 Judge scores and evidence. Disabled dimensions say so. Gate uses a separate 12-frame sheet tab;
 Gate evidence indices are never treated as Memory pair indices. Legacy v1 outputs remain supported. Use the video tab

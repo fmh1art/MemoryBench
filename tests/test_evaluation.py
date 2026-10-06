@@ -249,7 +249,7 @@ def test_equal_dimension_weights_not_metric_count():
     judgments["spatial"].object_localization = Metric.model_validate(
         metric(None, "insufficient_evidence")
     )
-    assert score_memory(judgments)["memory_score"] is None
+    assert score_memory(judgments)["memory_score"] == pytest.approx(5 / 6)
 
 
 class MockService:
@@ -632,7 +632,7 @@ def test_environment_can_be_explicitly_enabled(case, tmp_path):
     assert "inventory" not in service.calls
 
 
-def test_four_frame_scores_are_averaged_and_missing_evidence_not_dropped():
+def test_four_frame_scores_skip_unreliable_samples_and_retain_zero():
     frames = []
     for value in (0.0, 0.2, 0.6, 1.0):
         frames.append(
@@ -663,10 +663,14 @@ def test_four_frame_scores_are_averaged_and_missing_evidence_not_dropped():
     for group in ("dimensions", "metrics"):
         for item in frames[0]["scores"][group].values():
             item.update(status="insufficient_evidence", normalized=None)
-    assert average_memory_frames(frames)["memory_score"] is None
+    aggregate = average_memory_frames(frames)
+    assert aggregate["memory_score"] == pytest.approx(0.6)
+    assert aggregate["scored_frames"] == 3
+    assert aggregate["excluded_frames"] == 1
+    assert aggregate["metrics"]["appearance.visual_appearance"]["scored_frames"] == 3
 
 
-def test_frame_averaging_retains_not_applicable_and_rejects_partial_denominator():
+def test_frame_averaging_retains_not_applicable_and_uses_available_denominator():
     frames = []
     for _ in range(4):
         item = {"status": "not_applicable", "normalized": None, "score": None}
@@ -688,6 +692,14 @@ def test_frame_averaging_retains_not_applicable_and_rejects_partial_denominator(
     for group in ("dimensions", "metrics"):
         for item in frames[0]["scores"][group].values():
             item.update(status="scored", normalized=1.0, score=5)
+    assert average_memory_frames(frames)["status"] == "scored"
+    assert average_memory_frames(frames)["memory_score"] == 1.0
+    assert average_memory_frames(frames)["scored_frames"] == 1
+    frames[0]["status"] = "insufficient_evidence"
+    frames[0]["memory_score"] = None
+    for group in ("dimensions", "metrics"):
+        for item in frames[0]["scores"][group].values():
+            item.update(status="insufficient_evidence", normalized=None, score=None)
     assert average_memory_frames(frames)["status"] == "insufficient_evidence"
     assert average_memory_frames(frames)["memory_score"] is None
 
@@ -698,3 +710,17 @@ def test_inventory_metric_selection_changes_only_the_aggregation():
     assert scores["memory_score"] == 1.0
     assert set(scores["metrics"]) == {"inventory.object_presence"}
     assert scores["dimensions"]["inventory"]["spurious_objects"] == 1
+
+
+def test_partial_metric_visibility_does_not_discard_reliable_scores():
+    judgment = Appearance.model_validate(
+        {
+            "visual_appearance": metric(0),
+            "geometry_shape": metric(None, "insufficient_evidence"),
+        }
+    )
+    scores = score_memory({"appearance": judgment})
+    assert scores["status"] == "scored"
+    assert scores["memory_score"] == 0.0
+    assert scores["dimensions"]["appearance"]["scored_samples"] == 1
+    assert scores["metrics"]["appearance.geometry_shape"]["normalized"] is None

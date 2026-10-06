@@ -36,7 +36,6 @@ def select_metrics(dimensions=None, metrics=None):
 def score_memory(judgments: dict, selected_metrics=None) -> dict:
     selected = set(selected_metrics or select_metrics(tuple(judgments)))
     dimensions, metrics = {}, {}
-    incomplete = False
     for dimension, judgment in judgments.items():
         if dimension == "inventory":
             item = score_inventory(judgment)
@@ -71,43 +70,54 @@ def score_memory(judgments: dict, selected_metrics=None) -> dict:
                 records.append(record)
             item = average_records(records)
         dimensions[dimension] = item
-        incomplete |= item["status"] == "insufficient_evidence"
     applicable = [
         item["normalized"] for item in dimensions.values() if item["status"] == "scored"
     ]
     status = (
-        "insufficient_evidence"
-        if incomplete
-        else ("scored" if applicable else "not_applicable")
+        "scored"
+        if applicable
+        else (
+            "insufficient_evidence"
+            if any(
+                item["status"] == "insufficient_evidence"
+                for item in dimensions.values()
+            )
+            else "not_applicable"
+        )
     )
     return {
         "status": status,
         "memory_score": mean(applicable) if status == "scored" else None,
         "dimensions": dimensions,
         "metrics": metrics,
+        "scored_dimensions": len(applicable),
+        "total_dimensions": len(dimensions),
     }
 
 
-def average_records(records, require_four=False):
+def average_records(records):
     statuses = [item["status"] for item in records]
     scored = [item for item in records if item["status"] == "scored"]
-    if "insufficient_evidence" in statuses or (
-        require_four and scored and len(scored) != 4
-    ):
-        status, normalized = "insufficient_evidence", None
-    elif scored:
+    if scored:
         status, normalized = "scored", mean(item["normalized"] for item in scored)
     else:
-        status, normalized = "not_applicable", None
+        status = (
+            "insufficient_evidence"
+            if "insufficient_evidence" in statuses
+            else "not_applicable"
+        )
+        normalized = None
     return {
         "status": status,
         "normalized": normalized,
         "score": 5 * normalized if normalized is not None else None,
+        "scored_samples": len(scored),
+        "total_samples": len(records),
     }
 
 
 def average_memory_frames(frames):
-    """Equal-weight means of all four pairs; never cherry-pick visible/scored frames."""
+    """Average reliable scores only; retain null results and explicit denominators."""
     if len(frames) != 4 or any(frame["status"] == "error" for frame in frames):
         raise ValueError("Four successful frame evaluations are required")
     dimensions, metrics = {}, {}
@@ -115,7 +125,7 @@ def average_memory_frames(frames):
         names = frames[0]["scores"][group]
         for name in names:
             records = [frame["scores"][group][name] for frame in frames]
-            item = average_records(records, require_four=True)
+            item = average_records(records)
             item["scored_frames"] = sum(
                 record["status"] == "scored" for record in records
             )
@@ -129,30 +139,35 @@ def average_memory_frames(frames):
                     "missing_objects",
                     "spurious_objects",
                 ):
-                    values = [record[key] for record in records]
-                    item[key] = (
-                        mean(values)
-                        if all(value is not None for value in values)
-                        else None
-                    )
+                    values = [
+                        record[key]
+                        for record in records
+                        if record["status"] == "scored" and record[key] is not None
+                    ]
+                    item[key] = mean(values) if values else None
             destination[name] = item
-    incomplete = any(
-        item["status"] == "insufficient_evidence"
-        for item in (*dimensions.values(), *metrics.values())
-    )
-    scores = [frame["memory_score"] for frame in frames]
-    complete = all(value is not None for value in scores)
+    scores = [
+        frame["memory_score"]
+        for frame in frames
+        if frame["status"] == "scored" and frame["memory_score"] is not None
+    ]
     status = (
-        "insufficient_evidence"
-        if incomplete or (any(value is not None for value in scores) and not complete)
-        else ("scored" if complete else "not_applicable")
+        "scored"
+        if scores
+        else (
+            "insufficient_evidence"
+            if any(frame["status"] == "insufficient_evidence" for frame in frames)
+            else "not_applicable"
+        )
     )
     return {
         "status": status,
         "memory_score": mean(scores) if status == "scored" else None,
         "dimensions": dimensions,
         "metrics": metrics,
-        "aggregation": "mean_of_four_independent_pairs",
+        "aggregation": "mean_of_reliable_frame_scores",
+        "scored_frames": len(scores),
+        "excluded_frames": len(frames) - len(scores),
         "frame_count": 4,
     }
 
@@ -175,7 +190,7 @@ def summarize(results: list[dict]) -> dict:
             "mean": mean(values) if values else None,
             "n": len(values),
         }
-    # Per-metric summaries use complete scored cases, matching the headline denominator.
+    # Each mean uses cases with a reliable score for that metric; retain its denominator.
     metric_names = sorted(
         {name for item in scored for name in item["scores"]["metrics"]}
     )

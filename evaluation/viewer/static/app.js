@@ -225,6 +225,12 @@ function renderCase() {
           : "0%";
       bar.append(fill);
       card.append(element("div", name, "score-label"), number, bar);
+      const validFrames =
+        name === "Memory"
+          ? result.scores?.scored_frames
+          : result.scores?.dimensions?.[key]?.scored_frames;
+      if (!disabled && validFrames !== undefined)
+        card.append(element("div", `有效帧 ${validFrames} / 4`, "score-label"));
       return card;
     }),
   );
@@ -234,7 +240,7 @@ function renderCase() {
       : result.status === "gate_failed"
         ? "Gate 未通过，Memory Judge 未执行；分数未计算，不能按零分理解。"
         : result.status === "insufficient_evidence"
-          ? "部分指标证据不足，综合分未计算；已有子指标结果仍可查看。"
+          ? "全部采样帧均无可靠综合分；已有子指标结果仍可查看。"
           : result.status === "not_applicable"
             ? "已启用指标均不适用，综合分未计算；原因见下方 evidence。"
             : "评估调用失败，分数未计算；错误信息见下方。";
@@ -257,7 +263,7 @@ function renderCase() {
     result.protocol?.endsWith("v2") && !result.memory_sampling;
   if (result.protocol?.endsWith("v2"))
     $("score-note").textContent +=
-      " Memory 使用 20% / 40% / 60% / 80% 四组独立单帧；平均分要求四帧均有有效评分。";
+      " Memory 使用 20% / 40% / 60% / 80% 四组独立单帧；平均分跳过无法可靠评分的数据；有效帧数见下方。";
   renderFrameOverview();
   renderFrameSelector();
   renderJudgments();
@@ -270,6 +276,15 @@ function renderFrameOverview() {
   if (!frames) return;
   const wrapper = element("div");
   wrapper.append(element("h2", "四帧评分与平均分"));
+  if (result.scores?.scored_frames !== undefined) {
+    wrapper.append(
+      element(
+        "p",
+        `Memory 有效帧 ${result.scores.scored_frames} / 4；不可靠或不适用的分数跳过，零分正常参与平均。`,
+        "small muted",
+      ),
+    );
+  }
   const table = element("table");
   const head = element("tr");
   const enabled = Object.keys(DIMENSIONS).filter((dim) =>
@@ -314,7 +329,7 @@ function renderFrameOverview() {
     table,
     element(
       "p",
-      "表中分数为 0–1。上方卡片是四帧平均分；下方 evidence、Inventory 物体计数和原始 0–5 分属于当前选中的单帧。",
+      "表中分数为 0–1。上方卡片是有效帧平均分；下方 evidence、Inventory 物体计数和原始 0–5 分属于当前选中的单帧。",
       "small muted",
     ),
   );
@@ -325,7 +340,10 @@ function renderFrameOverview() {
       const value = name.startsWith("inventory.")
         ? `${score(metric.normalized)} / 1`
         : `${score(metric.score)} / 5`;
-      const item = element("span", `${METRICS[key] || key} 平均`);
+      const item = element(
+        "span",
+        `${METRICS[key] || key} 平均（${metric.scored_frames} / 4 帧）`,
+      );
       item.append(element("strong", value));
       averages.append(item);
     }
@@ -831,7 +849,7 @@ async function init() {
     for (const [label, value] of [
       ["Model", data.model],
       ["Cases", data.cases.length],
-      ["完整评分", `${data.summary.scored_cases ?? "—"}/${data.cases.length}`],
+      ["可评分", `${data.summary.scored_cases ?? "—"}/${data.cases.length}`],
       [
         "Gate 通过",
         typeof data.summary.gate_pass_rate === "number"
