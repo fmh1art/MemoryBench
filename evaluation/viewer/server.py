@@ -60,8 +60,11 @@ class Catalog:
             "gt_video": Path(result["case"]["gt_video"]),
             "gen_video": Path(result["case"]["gen_video"]),
         }
-        match = re.fullmatch(r"(gt|gen)_frame_([1-4])", kind)
-        if match and result.get("memory_sampling"):
+        match = re.fullmatch(r"(gt|gen)_frame_([1-9]\d*)", kind)
+        if match and any(
+            frame["frame_index"] == int(match[2])
+            for frame in result.get("memory_sampling", {}).get("frames", [])
+        ):
             paths[kind] = directory / "memory_frames" / f"{match[2]}_{match[1]}.jpg"
         path = paths.get(kind)
         return path if path is not None and path.is_file() else None

@@ -351,12 +351,12 @@ def test_gate_then_parallel_memory_calls_and_audit(case, tmp_path):
     result = run_mock(case, tmp_path / "passing", service)
     assert result["status"] == "scored" and result["memory_score"] == 1
     assert service.calls[0] == "gate"
-    assert len(service.calls) == 13
+    assert len(service.calls) == 25
     assert all(
-        service.calls.count(dim) == 4 for dim in ("inventory", "appearance", "spatial")
+        service.calls.count(dim) == 8 for dim in ("inventory", "appearance", "spatial")
     )
     assert "environment" not in service.calls
-    assert len(result["memory_frames"]) == 4
+    assert len(result["memory_frames"]) == 8
     assert service.peak == 3
     record = json.loads(
         (tmp_path / "passing/judges/frame_1/inventory.json").read_text()
@@ -383,7 +383,7 @@ def test_api_failure_finishes_other_judges_and_does_not_score_zero(case, tmp_pat
     service.fail = "appearance"
     result = run_mock(case, tmp_path / "error", service, retries=2)
     assert result["status"] == "error" and result["memory_score"] is None
-    assert service.calls.count("appearance") == 4  # one terminal 400 per pair
+    assert service.calls.count("appearance") == 8  # one terminal 400 per pair
     assert all(len(frame["judgments"]) == 2 for frame in result["memory_frames"])
     assert (
         "Do not persist"
@@ -396,7 +396,7 @@ def test_invalid_json_retries_and_preserves_attempts(case, tmp_path):
     service.invalid_once = "inventory"
     result = run_mock(case, tmp_path / "retry", service, retries=1)
     assert result["status"] == "scored"
-    assert service.calls.count("inventory") == 5
+    assert service.calls.count("inventory") == 9
     record = json.loads((tmp_path / "retry/judges/frame_1/inventory.json").read_text())
     assert len(record["attempts"]) == 2 and "error" in record["attempts"][0]
     repair = record["attempts"][1]["validation_repair"]
@@ -424,7 +424,7 @@ def test_global_concurrency_across_cases(case, tmp_path):
 
     results = asyncio.run(execute())
     assert all(result["status"] == "scored" for result in results)
-    assert service.peak == 2 and len(service.calls) == 26
+    assert service.peak == 2 and len(service.calls) == 50
     summary = summarize(
         results
         + [
@@ -584,16 +584,20 @@ def test_connection_timeout_does_not_use_full_generation_timeout():
     asyncio.run(execute())
 
 
-def test_memory_pairs_sample_middle_sixty_percent_without_collages(case, tmp_path):
+def test_memory_pairs_sample_middle_eighty_percent_without_collages(case, tmp_path):
     _, _, gate_sampling = make_sheets(case, tmp_path)
     metadata = make_memory_pairs(case, tmp_path, gate_sampling)
-    assert metadata["fractions"] == [0.2, 0.4, 0.6, 0.8]
+    assert metadata["fractions"] == pytest.approx([0.1 + 0.8 * i / 7 for i in range(8)])
     assert [frame["time_seconds"] for frame in metadata["frames"]] == pytest.approx(
-        [0.4, 0.8, 1.2, 1.6]
+        [2 * (0.1 + 0.8 * i / 7) for i in range(8)]
     )
     assert [frame["is_read"] for frame in metadata["frames"]] == [
         False,
         False,
+        False,
+        False,
+        True,
+        True,
         True,
         True,
     ]
@@ -608,7 +612,7 @@ def test_only_selected_submetrics_are_judged_and_scored(case, tmp_path):
     selected = select_metrics(metrics=["appearance.visual_appearance"])
     result = run_mock(case, tmp_path / "selected", service, selected_metrics=selected)
     assert result["status"] == "scored"
-    assert service.calls == ["gate"] + ["appearance"] * 4
+    assert service.calls == ["gate"] + ["appearance"] * 8
     assert set(result["scores"]["dimensions"]) == {"appearance"}
     assert set(result["scores"]["metrics"]) == {"appearance.visual_appearance"}
     assert set(result["memory_frames"][0]["judgments"]["appearance"]) == {
@@ -628,13 +632,14 @@ def test_environment_can_be_explicitly_enabled(case, tmp_path):
         selected_metrics=select_metrics(["environment"]),
     )
     assert result["status"] == "scored"
-    assert service.calls.count("environment") == 4
+    assert service.calls.count("environment") == 8
     assert "inventory" not in service.calls
 
 
-def test_four_frame_scores_skip_unreliable_samples_and_retain_zero():
+@pytest.mark.parametrize("copies", [1, 2])
+def test_frame_scores_skip_unreliable_samples_and_retain_zero(copies):
     frames = []
-    for value in (0.0, 0.2, 0.6, 1.0):
+    for value in (0.0, 0.2, 0.6, 1.0) * copies:
         frames.append(
             {
                 "status": "scored",
@@ -654,6 +659,7 @@ def test_four_frame_scores_skip_unreliable_samples_and_retain_zero():
             }
         )
     aggregate = average_memory_frames(frames)
+    assert aggregate["frame_count"] == 4 * copies
     assert aggregate["memory_score"] == pytest.approx(0.45)
     assert aggregate["metrics"]["appearance.visual_appearance"][
         "score"
@@ -664,10 +670,15 @@ def test_four_frame_scores_skip_unreliable_samples_and_retain_zero():
         for item in frames[0]["scores"][group].values():
             item.update(status="insufficient_evidence", normalized=None)
     aggregate = average_memory_frames(frames)
-    assert aggregate["memory_score"] == pytest.approx(0.6)
-    assert aggregate["scored_frames"] == 3
+    assert aggregate["memory_score"] == pytest.approx(
+        0.45 * 4 * copies / (4 * copies - 1)
+    )
+    assert aggregate["scored_frames"] == 4 * copies - 1
     assert aggregate["excluded_frames"] == 1
-    assert aggregate["metrics"]["appearance.visual_appearance"]["scored_frames"] == 3
+    assert (
+        aggregate["metrics"]["appearance.visual_appearance"]["scored_frames"]
+        == 4 * copies - 1
+    )
 
 
 def test_frame_averaging_retains_not_applicable_and_uses_available_denominator():

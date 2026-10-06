@@ -239,7 +239,13 @@ function renderCase() {
           ? result.scores?.scored_frames
           : result.scores?.dimensions?.[key]?.scored_frames;
       if (!disabled && validFrames !== undefined)
-        card.append(element("div", `有效帧 ${validFrames} / 4`, "score-label"));
+        card.append(
+          element(
+            "div",
+            `有效帧 ${validFrames} / ${result.memory_sampling.frames.length}`,
+            "score-label",
+          ),
+        );
       return card;
     }),
   );
@@ -266,13 +272,15 @@ function renderCase() {
     ? "Gate · 12 帧拼图"
     : "拼图对照";
   $("tab-frames").textContent = result.memory_sampling
-    ? "Memory · 4 组单帧"
+    ? `Memory · ${result.memory_sampling.frames.length} 组单帧`
     : "逐帧放大";
   $("tab-frames").disabled =
     result.protocol?.endsWith("v2") && !result.memory_sampling;
   if (result.protocol?.endsWith("v2"))
     $("score-note").textContent +=
-      " Memory 使用 20% / 40% / 60% / 80% 四组独立单帧；平均分跳过无法可靠评分的数据；有效帧数见下方。";
+      result.memory_sampling
+        ? ` Memory 使用 ${result.memory_sampling.fractions.map((f) => `${(f * 100).toFixed(2)}%`).join(" / ")} 的 ${result.memory_sampling.frames.length} 组独立单帧；平均分跳过无法可靠评分的数据；有效帧数见下方。`
+        : "";
   renderFrameOverview();
   renderFrameSelector();
   renderJudgments();
@@ -289,7 +297,7 @@ function renderFrameOverview() {
     wrapper.append(
       element(
         "p",
-        `Memory 有效帧 ${result.scores.scored_frames} / 4；不可靠或不适用的分数跳过，零分正常参与平均。`,
+        `Memory 有效帧 ${result.scores.scored_frames} / ${result.memory_sampling.frames.length}；不可靠或不适用的分数跳过，零分正常参与平均。`,
         "small muted",
       ),
     );
@@ -351,7 +359,7 @@ function renderFrameOverview() {
         : `${score(metric.score)} / 5`;
       const item = element(
         "span",
-        `${METRICS[key] || key} 平均（${metric.scored_frames} / 4 帧）`,
+        `${METRICS[key] || key} 平均（${metric.scored_frames} / ${result.memory_sampling.frames.length} 帧）`,
       );
       item.append(element("strong", value));
       averages.append(item);

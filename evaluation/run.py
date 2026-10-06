@@ -17,7 +17,7 @@ from .scoring import (
     select_metrics,
     summarize,
 )
-from .video import make_memory_pairs, make_sheets
+from .video import MEMORY_FRACTIONS, make_memory_pairs, make_sheets
 
 
 def load_cases(path: Path) -> list[Case]:
@@ -195,7 +195,7 @@ async def run(args):
                 "protocol": "memory_evaluation.frame_pairs.v2",
                 "aggregation_policy": "skip_unreliable_scores",
                 "selected_metrics": list(selected_metrics),
-                "memory_sampling_fractions": [0.2, 0.4, 0.6, 0.8],
+                "memory_sampling_fractions": list(MEMORY_FRACTIONS),
                 "memory_image_max_side": 1024,
                 "model": args.model,
                 "concurrency": args.concurrency,

@@ -7,6 +7,8 @@ from pathlib import Path
 import av
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+MEMORY_FRACTIONS = tuple(round(0.1 + 0.8 * index / 7, 12) for index in range(8))
+
 
 def _timestamps(path: str) -> list[float]:
     times = []
@@ -169,9 +171,9 @@ def make_sheets(
 
 
 def make_memory_pairs(case, output, gate_sampling, max_side=1024):
-    """Four independent frame pairs at 20/40/60/80% of the shared video timeline."""
+    """Eight aligned frame pairs spanning 10–90% of the shared video timeline."""
     end = gate_sampling["shared_end_seconds"]
-    targets = [end * fraction for fraction in (0.2, 0.4, 0.6, 0.8)]
+    targets = [end * fraction for fraction in MEMORY_FRACTIONS]
     times = [_timestamps(case.gt_video), _timestamps(case.gen_video)]
     offsets = [case.gt_start_seconds, case.gen_start_seconds]
     indices = [
@@ -218,8 +220,8 @@ def make_memory_pairs(case, output, gate_sampling, max_side=1024):
                 if index >= max(wanted):
                     break
     return {
-        "fractions": [0.2, 0.4, 0.6, 0.8],
-        "interval": [0.2 * end, 0.8 * end],
+        "fractions": list(MEMORY_FRACTIONS),
+        "interval": [MEMORY_FRACTIONS[0] * end, MEMORY_FRACTIONS[-1] * end],
         "frames": pairs,
         "max_side": max_side,
         "gt_unique_frames": len(set(indices[0])),

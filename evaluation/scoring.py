@@ -118,8 +118,8 @@ def average_records(records):
 
 def average_memory_frames(frames):
     """Average reliable scores only; retain null results and explicit denominators."""
-    if len(frames) != 4 or any(frame["status"] == "error" for frame in frames):
-        raise ValueError("Four successful frame evaluations are required")
+    if not frames or any(frame["status"] == "error" for frame in frames):
+        raise ValueError("A nonempty set of successful frame evaluations is required")
     dimensions, metrics = {}, {}
     for group, destination in [("dimensions", dimensions), ("metrics", metrics)]:
         names = frames[0]["scores"][group]
@@ -168,7 +168,7 @@ def average_memory_frames(frames):
         "aggregation": "mean_of_reliable_frame_scores",
         "scored_frames": len(scores),
         "excluded_frames": len(frames) - len(scores),
-        "frame_count": 4,
+        "frame_count": len(frames),
     }
 
 
