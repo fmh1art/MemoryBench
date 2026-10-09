@@ -9,9 +9,14 @@ description = "Action-conditioned world model memory evaluation"
 requires-python = ">=3.11"
 dependencies = ["httpx>=0.27", "pydantic>=2", "av>=18", "Pillow>=11", "numpy>=2", "imageio>=2"]
 
+[project.optional-dependencies]
+automated = ["scipy>=1.14"]
+automated-perceptual = ["scipy>=1.14", "torch>=2.2", "torchvision>=0.17", "lpips>=0.1.4"]
+automated-quality = ["scipy>=1.14", "pyiqa>=0.1.13"]
+
 [tool.setuptools.packages.find]
 include = ["evaluation*", "mem_case_anno_demo*"]
 
 [tool.setuptools.package-data]
-evaluation = ["common.md", "memory_common.md", "README.md", "cases.example.json", "*/rubric.md", "viewer/static/*"]
+evaluation = ["common.md", "memory_common.md", "README.md", "cases.example.json", "*/rubric.md", "viewer/static/*", "automated/README.md"]
 mem_case_anno_demo = ["static/*"]
