@@ -289,10 +289,12 @@ def test_whole_dimension_failure_zero_is_not_dropped():
     "reason",
     ["reference_unavailable", "unknown", "natural_occlusion", "not_applicable"],
 )
-def test_reference_or_unknown_whole_dimension_never_becomes_zero(reason):
+def test_missing_dimension_gives_case_policy_zero_preserving_raw_null(reason):
     result = temporal_case(reason)
     assert result["dimensions"]["appearance"]["normalized"] is None
-    assert result["memory_score"] is None
+    assert result["memory_score"] == 0
+    assert result["status"] == "scored"
+    assert result["evidence_fallback_zero"] is True
     assert result["incomplete_dimensions"] == ["appearance"]
 
 

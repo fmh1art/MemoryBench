@@ -249,7 +249,7 @@ def test_geometric_core_dimensions_exclude_environment():
     judgments["spatial"].object_localization = Metric.model_validate(
         metric(None, "insufficient_evidence")
     )
-    assert score_memory(judgments)["memory_score"] is None
+    assert score_memory(judgments)["memory_score"] == 0
     assert score_memory(judgments)["incomplete_dimensions"] == ["spatial"]
 
 
@@ -641,7 +641,7 @@ def test_environment_can_be_explicitly_enabled(case, tmp_path):
         service,
         selected_metrics=select_metrics(["environment"]),
     )
-    assert result["status"] == "not_applicable" and result["memory_score"] is None
+    assert result["status"] == "scored" and result["memory_score"] == 0
     assert result["scores"]["dimensions"]["environment"]["normalized"] == 1.0
     assert service.calls.count("environment") == 8
     assert "inventory" not in service.calls
@@ -707,8 +707,8 @@ def test_frame_averaging_retains_not_applicable_and_uses_available_denominator()
             }
         )
     aggregate = average_memory_frames(frames)
-    assert aggregate["status"] == "not_applicable"
-    assert aggregate["memory_score"] is None
+    assert aggregate["status"] == "scored"
+    assert aggregate["memory_score"] == 0
     frames[0]["status"] = "scored"
     frames[0]["memory_score"] = 1.0
     for group in ("dimensions", "metrics"):
@@ -722,8 +722,8 @@ def test_frame_averaging_retains_not_applicable_and_uses_available_denominator()
     for group in ("dimensions", "metrics"):
         for item in frames[0]["scores"][group].values():
             item.update(status="insufficient_evidence", normalized=None, score=None)
-    assert average_memory_frames(frames)["status"] == "insufficient_evidence"
-    assert average_memory_frames(frames)["memory_score"] is None
+    assert average_memory_frames(frames)["status"] == "scored"
+    assert average_memory_frames(frames)["memory_score"] == 0
 
 
 def test_inventory_metric_selection_changes_only_the_aggregation():

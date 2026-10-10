@@ -45,7 +45,7 @@ Memory uses **eight aligned timestamps uniformly spanning 10%–90% of the share
 both endpoints. These are not samples of a separately stretched Read interval. Each query receives
 exactly two standalone images, no collage or overlays; cap the longest side at 1024 without
 upscaling/stretching. Record requested/decoded timestamps and whether each lies in Read.
-A frame before Read or with unresolvable target facts may be insufficient_evidence.
+A frame before Read or with unresolvable target facts may retain raw insufficient_evidence metadata; the v3.4 case-level policy still returns a numeric score.
 
 ## Judge order and scope
 
@@ -107,11 +107,12 @@ evaluates matched instances. Renormalize selected/available submetric weights. E
 has a structured null_reason: reference_unavailable, natural_occlusion, generated_failure,
 no_matched_objects, not_applicable, or unknown. Legacy missing reasons stay unknown unless reliable
 Inventory annotations establish confirmed absent matches; never classify free-text evidence by keywords.
-If all frame scores for an enabled core dimension are null, confirmed generated failure or absent
-matches makes that case dimension zero (whole_dimension_failure_zero=true). Otherwise keep it null
-and flag the case incomplete. Never compute the geometric mean using only the remaining enabled
-dimensions. A known zero fixes the total at zero even if other dimensions remain unresolved, without
-fabricating their grades. Disabled dimensions are excluded by configuration; Environment is diagnostic.
+Under `memory.v3.4.missing_evidence_zero`, every successfully evaluated case gets a numeric
+Memory Score. If an enabled core dimension has no valid evidence across the case, the case
+score is **0**, with `evidence_fallback_zero=true` and `incomplete_dimensions` recorded.
+This is a conservative scoring policy, not a claim that visual evidence proved model failure.
+Raw metric/dimension nulls and reasons are preserved; available frames still use the original
+aggregation. Disabled dimensions are excluded; Environment remains diagnostic.
 
 To update saved results under the generated-failure policy:
 
@@ -130,7 +131,7 @@ partial scores should not be interpreted as complete three-dimension assessments
 
 Benchmark M_Memory=sum(g_i*M_i)/N: failed Gates contribute zero. For a completed benchmark,
 N includes every case. API errors or reference-unavailable/unknown passed cases remain unscored,
-are reported separately, and do not masquerade as Gate failures/zeros. If any case remains unresolved,
+are reported separately, and do not masquerade as Gate failures/zeros. If any API/schema error remains,
 benchmark_complete=false and the headline is null; partial_memory_score exposes the provisional
 mean with memory_score_n scored cases, never a completed all-case score. Also retain the passed-only mean in `gate_valid_memory_score`
 (0–1), `gate_valid_memory_score_100`, and its denominator `gate_valid_memory_score_n`.

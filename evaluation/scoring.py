@@ -21,7 +21,7 @@ WEIGHTS = {
     "spatial.object_localization": 0.4,
     "spatial.relative_spatial_relation": 0.6,
 }
-SCORING_VERSION = "memory.v3.3.complete_dimensions"
+SCORING_VERSION = "memory.v3.4.missing_evidence_zero"
 METRIC_NAMES = tuple(
     f"{dim}.{name}" for dim, names in DIMENSION_METRICS.items() for name in names
 )
@@ -84,29 +84,25 @@ def average_records(records, weights=None):
 
 
 def memory_from_dimensions(dimensions):
-    """Never drop an enabled unresolved core dimension; known zeros remain absorbing."""
+    """Every case has a score; missing enabled core evidence is a policy zero.
+
+    Raw dimensions remain unchanged so unavailable evidence stays auditable.
+    """
     core = [dimensions[name] for name in DEFAULT_DIMENSIONS if name in dimensions]
     values = [item["normalized"] for item in core if item["status"] == "scored"]
     complete = bool(core) and len(values) == len(core)
-    zero = 0.0 in values
-    status = (
-        "scored"
-        if complete or zero
-        else (
-            "insufficient_evidence"
-            if values or any(item["status"] == "insufficient_evidence" for item in core)
-            else "not_applicable"
-        )
-    )
     score = (
-        (0.0 if zero else exp(mean(log(value) for value in values)))
-        if complete or zero
-        else None
+        exp(mean(log(value) for value in values))
+        if complete and all(value > 0 for value in values)
+        else 0.0
     )
+    status = "scored"
     return {
         "status": status,
         "memory_score": score,
         "memory_score_100": 100 * score if score is not None else None,
+        "evidence_policy": "missing_enabled_core_evidence_case_zero",
+        "evidence_fallback_zero": not complete,
         "scored_dimensions": len(values),
         "total_dimensions": len(core),
         "incomplete_dimensions": [
