@@ -139,6 +139,32 @@ memory_score_100 and report.memory_score are the 0–100 headline. report also c
 Gate Coverage percent and dimension scores on the 0–100 scale. Do not silently turn API/schema
 errors into invalid visibility or zeros; report error_cases separately.
 
+## Machine-local Qwen API configuration
+
+Copy the tracked template once on each machine:
+
+```bash
+cp configs/api.example.toml configs/api.local.toml
+```
+
+Edit `configs/api.local.toml` for that machine's endpoint, port, model and API key
+environment variable. Git ignores this file, so pulls and pushes preserve each machine's
+settings. The template matches ACWM `deploy/qwen3_8_vllm`: port 8000, model
+`qwen3.8-27b`, OpenAI-compatible chat completions and thinking disabled.
+Set any required key in `MEM_BENCH_API_KEY`; do not put credentials in TOML.
+
+Both `evaluation.run` and `evaluation.review_nulls` load this file automatically,
+independent of the working directory. Use `--api-config PATH` or
+`MEMORYBENCH_API_CONFIG` for another file. Explicit `--endpoint`, `--model` and
+`--api-key-env` override the file. Missing endpoint/model settings fail before API calls.
+The evaluation CLI's `--extra-body` JSON overrides matching top-level local extra-body
+fields. Without a config file, existing explicit endpoint/model commands still work.
+
+```bash
+python -m evaluation.run --cases cases.json --output results/new_run
+python -m evaluation.review_nulls --source OLD_RESULTS --output NEW_RESULTS
+```
+
 ## Running
 
 ```bash

@@ -8,6 +8,7 @@ import os
 from math import isfinite
 from pathlib import Path
 
+from .api_config import add_api_arguments, resolve_api_arguments
 from .appearance.judge import judge_appearance
 from .judge import Judge, write_json
 from .schema import Case
@@ -195,6 +196,7 @@ async def run(args):
     extra_body = json.loads(args.extra_body.read_text()) if args.extra_body else {}
     if not isinstance(extra_body, dict):
         raise ValueError("--extra-body must contain a JSON object")  # noqa: TRY004 -- CLI input error
+    extra_body = {**getattr(args, "api_extra_body", {}), **extra_body}
     judge = Judge(
         args.endpoint,
         args.model,
@@ -291,14 +293,10 @@ def main():
         required=True,
         help="JSON array; paths relative to this file",
     )
-    parser.add_argument(
-        "--endpoint", required=True, help="Full compatible /v1/chat/completions URL"
-    )
-    parser.add_argument("--model", required=True)
+    add_api_arguments(parser)
     parser.add_argument(
         "--output", type=Path, required=True, help="New output directory; cannot exist"
     )
-    parser.add_argument("--api-key-env", default="MEM_BENCH_API_KEY")
     parser.add_argument(
         "--concurrency",
         type=positive_int,
@@ -368,6 +366,7 @@ def main():
             "tile-width>=420, tile-height>=64, max-skew-seconds>=0 are required"
         )
     try:
+        resolve_api_arguments(args)
         return asyncio.run(run(args))
     except (ValueError, OSError) as exc:
         print(f"Evaluation failed: {exc}")

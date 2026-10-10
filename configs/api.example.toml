@@ -1,0 +1,9 @@
+# Copy to api.local.toml on each machine; that file is ignored by Git.
+# API keys belong in the environment variable named below.
+[api]
+endpoint = "http://127.0.0.1:8000/v1/chat/completions"
+model = "qwen3.8-27b"
+api_key_env = "MEM_BENCH_API_KEY"
+
+[api.extra_body.chat_template_kwargs]
+enable_thinking = false

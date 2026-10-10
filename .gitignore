@@ -16,3 +16,6 @@ models/
 build/
 dist/
 evaluation/baselines/origin_scripts/
+
+# Machine-specific evaluation API settings (copy the tracked example).
+configs/api.local.toml

@@ -14,6 +14,7 @@ from typing import Literal
 
 from pydantic import Field, create_model, model_validator
 
+from .api_config import add_api_arguments, resolve_api_arguments
 from .inventory.schema import Judgment as Inventory
 from .inventory.scoring import matched_objects, score_inventory
 from .judge import Judge, write_json
@@ -327,7 +328,8 @@ async def main_async(args):
     judge = Judge(
         args.endpoint,
         args.model,
-        os.environ[args.api_key_env],
+        os.environ.get(args.api_key_env, ""),
+        extra_body=getattr(args, "api_extra_body", {}),
         concurrency=32,
         timeout=240,
         retries=3,
@@ -351,10 +353,15 @@ async def main_async(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("source", "output", "endpoint", "model"):
+    for name in ("source", "output"):
         parser.add_argument("--" + name, required=True)
-    parser.add_argument("--api-key-env", default="MEM_BENCH_API_KEY")
-    asyncio.run(main_async(parser.parse_args()))
+    add_api_arguments(parser)
+    args = parser.parse_args()
+    try:
+        resolve_api_arguments(args)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    asyncio.run(main_async(args))
 
 
 if __name__ == "__main__":
