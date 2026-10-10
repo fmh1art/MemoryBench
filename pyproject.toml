@@ -18,5 +18,5 @@ automated-quality = ["scipy>=1.14", "pyiqa>=0.1.13"]
 include = ["evaluation*", "mem_case_anno_demo*"]
 
 [tool.setuptools.package-data]
-evaluation = ["common.md", "memory_common.md", "README.md", "cases.example.json", "*/rubric.md", "viewer/static/*", "automated/README.md"]
+evaluation = ["common.md", "memory_common.md", "README.md", "cases.example.json", "*/rubric.md", "automated/README.md"]
 mem_case_anno_demo = ["static/*"]

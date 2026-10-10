@@ -22,7 +22,6 @@ evaluation/
   judge.py         bounded async requests, validation, retries and call records
   scoring.py       weighted dimensions, temporal averages, geometric mean, summary
   run.py           single/batch evaluation
-  viewer/          read-only demo: videos, images, scores and evidence
 ```
 
 ## Inputs and sampling
@@ -185,12 +184,18 @@ v3 excludes them. Never rebrand those old labels as v3 by recomputing Python for
 Within a v3 interrupted run, exact matching inputs/model/rubrics/schema may reuse successful calls;
 preserve unsuccessful attempts when repairing failures.
 
-## Demo
+## Dashboard (separate repository)
+
+The read-only viewer, diagnostic tree, bilingual UI and case/video browser have moved to
+[MemoryBenchDashBoard](https://github.com/fmh1art/MemoryBenchDashBoard).
+They are no longer packaged in MemoryBench. The dashboard reads this project's saved evaluation
+results and dataset manifest without modifying scores, annotations or videos.
 
 ```bash
-python -m evaluation.viewer.server --results results/new_run --port 8765
+# Run from the separately cloned MemoryBenchDashBoard project.
+pip install -e .
+python -m memorybench_dashboard --results /path/to/results --dataset /path/to/evaluation_cases --port 8767
 ```
 
-Open http://127.0.0.1:8765. Compare Gate sheets, eight standalone pairs or synchronized videos.
-Select a pair to inspect Inventory annotations, 0–5 VLM scores and evidence. Gate-rejected cases
-have no Memory score. Disabled dimensions say so. Historical v2 scores retain their version label.
+Open http://127.0.0.1:8767/diagnostics. See the dashboard repository for model comparison,
+Prefix playback, English/Chinese UI, diagnostic grouping and representative-case selection.
