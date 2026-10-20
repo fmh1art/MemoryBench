@@ -148,7 +148,7 @@ def main():
     parser.add_argument("--study", type=Path, required=True)
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8900)
+    parser.add_argument("--port", type=int, default=8920)
     parser.add_argument("--secure-cookie", action="store_true", help="Use when serving behind HTTPS")
     args = parser.parse_args()
     app = create_app(args.study, args.db, args.secure_cookie)

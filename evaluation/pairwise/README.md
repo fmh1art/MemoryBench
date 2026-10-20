@@ -16,13 +16,13 @@ GT 用于参考目标状态，允许合理的视角和动作轨迹差异。Histo
 
 ## 本机访问
 
-已启动独立的 `memorybench-pairwise-demo.service`，监听 `127.0.0.1:8900`。在 VS Code 转发 **8900**，或从自己电脑执行：
+已启动独立的 `memorybench-pairwise-demo.service`，监听 `127.0.0.1:8920`。在 VS Code 转发 **8920**，或从自己电脑执行：
 
 ```bash
-ssh -N -L 8900:127.0.0.1:8900 <用户名>@<服务器>
+ssh -N -L 8920:127.0.0.1:8920 <用户名>@<服务器>
 ```
 
-然后打开 **http://127.0.0.1:8900**。更新表单后请刷新页面。
+然后打开 **http://127.0.0.1:8920**。更新表单后请刷新页面。
 
 服务使用：
 
@@ -50,7 +50,7 @@ python -m evaluation.pairwise.prepare \
 python -m evaluation.pairwise.server \
   --study evaluation/pairwise/runs/study.json \
   --db evaluation/pairwise/runs/votes.sqlite3 \
-  --host 127.0.0.1 --port 8900
+  --host 127.0.0.1 --port 8920
 ```
 
 本机可用 `/mnt/vdb_1t/project/acwm/MemWorld/.venv/bin/python` 运行。也可使用 `PAIRWISE_PYTHON=/path/to/python bash evaluation/pairwise/run.sh --study ... --db ...`。
