@@ -1,0 +1,26 @@
+{
+  "version": "memorybench.automated.v1",
+  "settings": {
+    "sampling": {
+      "fps": 24,
+      "width": 320,
+      "height": 192,
+      "max_frames": 0,
+      "max_skew": 0.1
+    },
+    "learned": [],
+    "device": "cpu"
+  },
+  "packages": {
+    "numpy": "2.5.2",
+    "scipy": "1.17.1",
+    "av": "18.1.0",
+    "Pillow": "12.3.0",
+    "torch": "2.10.0+cu130"
+  },
+  "expected_cases": 649,
+  "core_commit": "45ab68fea8af30b874e4984054116657d29a8b7b",
+  "scoring_version": "memory.v3.4.missing_evidence_zero",
+  "automatic_metrics_independent_of_gate": true,
+  "learned_metrics_enabled": []
+}

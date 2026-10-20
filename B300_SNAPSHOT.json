@@ -1,0 +1,223 @@
+{
+  "schema": "memorybench_b300_code_snapshot_v1",
+  "captured_at": "2026-10-20T12:53:46.452770+08:00",
+  "upstream": "https://github.com/fmh1art/MemoryBench",
+  "base_commit": "45ab68fea8af30b874e4984054116657d29a8b7b",
+  "branch": "husicheng/b300-eval-v34-20261020",
+  "scoring_version": "memory.v3.4.missing_evidence_zero",
+  "basis_receipt_sha256": "b099c374062195eb6cd0f2cac9de5b1471178fdbc0422ae3fa7473d43f6c0c16",
+  "source_job": "kda_vsa_d80k_lw20_flowmatch_step90000_total100000_cursor180000_20261020",
+  "source_evaluation": "frozen evaluation/ plus the job evaluation/code import closure",
+  "data_or_model_weights_included": false,
+  "credentials_included": false,
+  "inference_code_included": false,
+  "production_config_changed": false,
+  "evaluator_source_files": 36,
+  "ops_python_files": 12,
+  "files": {
+    "evaluation/README.md": {
+      "size": 13575,
+      "sha256": "94ac3b6b5649f9ef934ccd23c34e5e664b86b8a49fb4cb9fc89586a83e50bfaf"
+    },
+    "evaluation/__init__.py": {
+      "size": 72,
+      "sha256": "f03205b18c16eb42b121c5c050f262b88e5ca87e861b86d43208d0b05bd111d5"
+    },
+    "evaluation/api_config.py": {
+      "size": 1936,
+      "sha256": "5ee69a9898d36846fcca04f155cc81d8a0897ae6d095f6379a035f37bef287a2"
+    },
+    "evaluation/appearance/__init__.py": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evaluation/appearance/judge.py": {
+      "size": 2165,
+      "sha256": "fd9fee402ada6753a950f016496ea40e4a5d068e2cf683bc930f93a1cd45dc03"
+    },
+    "evaluation/appearance/rubric.md": {
+      "size": 3856,
+      "sha256": "479765b029cdbf63325936f9f27f6202068d8c8fa9daa1b480c6a74f9d58a683"
+    },
+    "evaluation/appearance/schema.py": {
+      "size": 119,
+      "sha256": "b36cbc55250da3df537e31d8435d7e9ea7156c85512f9ada17c302a6cc0451c6"
+    },
+    "evaluation/automated/README.md": {
+      "size": 7386,
+      "sha256": "2d7804eea91bbb7b144e7ec01741422813dd929f21cb7e21b1f66a8915566a34"
+    },
+    "evaluation/automated/__init__.py": {
+      "size": 80,
+      "sha256": "62d7d858c2a43b91cbcdcd429e3b64b4b1cc09405de8b7dfa94be3a85a9739dc"
+    },
+    "evaluation/automated/metrics.py": {
+      "size": 6137,
+      "sha256": "7b7a49b90f3ff675194cdcf4da4a806ab25cc23061e0ccfeeaf49a29a3289deb"
+    },
+    "evaluation/automated/run.py": {
+      "size": 7972,
+      "sha256": "3bf02d7832a2128db81accc4e65dbae6ac53bc654be95f6684bbbbf6fbe418ac"
+    },
+    "evaluation/automated/video.py": {
+      "size": 2773,
+      "sha256": "90519a56a1f52bc1468f7e369c6bdd977e525b5ddae8b07f7548d0b5d4b4f2b3"
+    },
+    "evaluation/cases.example.json": {
+      "size": 547,
+      "sha256": "4709d1d6a1ef7c58bb6e16d785e2d0b90caba0d0a86fbb5e5cc124b3308e294b"
+    },
+    "evaluation/common.md": {
+      "size": 2189,
+      "sha256": "dc49bf2e2c14c12e76194acb00c9f9a1a43d9c15eb5ad0aa1b5564fd6b1080fc"
+    },
+    "evaluation/environment/__init__.py": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evaluation/environment/rubric.md": {
+      "size": 4027,
+      "sha256": "925377b685a92a372e0a66f6eacdbcdb70d966e60ff410aa5d16d8a8bf6c03e0"
+    },
+    "evaluation/environment/schema.py": {
+      "size": 151,
+      "sha256": "68e23b4a05079e05a4f1f16b4fcc6b1cd1f9dfad05c865aa73ecf2872285346b"
+    },
+    "evaluation/formulation.md": {
+      "size": 5514,
+      "sha256": "7aef383434a23e03a00333d68840e550b172fefe6a8367c805af37defe1d8e13"
+    },
+    "evaluation/gate/__init__.py": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evaluation/gate/rubric.md": {
+      "size": 4910,
+      "sha256": "ba2d84b8e3df86b2482340c2b1b5b0b2beadd2a0a32fe3c8e7d65fc9cc18eb58"
+    },
+    "evaluation/gate/schema.py": {
+      "size": 593,
+      "sha256": "52289b1d8df2c9f0f381f1921b4c3f142e87a5e7454254a75aafd291bb9c5983"
+    },
+    "evaluation/inventory/__init__.py": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evaluation/inventory/rubric.md": {
+      "size": 4163,
+      "sha256": "78721f8e2d0687049e721fbf3acbcb15314f1ce5e2e81c74a5baf2b68cbbd079"
+    },
+    "evaluation/inventory/schema.py": {
+      "size": 1768,
+      "sha256": "67d937f120636faf199a7f9652ba444b630b2d7a0fb0f392b2e1be787e956e16"
+    },
+    "evaluation/inventory/scoring.py": {
+      "size": 3000,
+      "sha256": "4b1128ae9834fa91fe5d880da115efb8ca99d78cbef738c3cfe40511eba8cc1b"
+    },
+    "evaluation/judge.py": {
+      "size": 10608,
+      "sha256": "da6b162d9d2d12bf5e5de02411dd12179d9fac54567b074a0b15631c297dc4d0"
+    },
+    "evaluation/memory_common.md": {
+      "size": 4685,
+      "sha256": "072c681d206a51a0ab27816524fe0c078b190f860a358f394c3e18d06f01f1ef"
+    },
+    "evaluation/rate_limit.py": {
+      "size": 1800,
+      "sha256": "45a19d892587df8f9473cdae9e50dafb2e6df43418f9729b9a892d1bd1561d27"
+    },
+    "evaluation/review_nulls.py": {
+      "size": 14537,
+      "sha256": "1dbd9a27edb6f55a9ab22ce57bfee014034911f01c9dc737841fd7dab56ab626"
+    },
+    "evaluation/run.py": {
+      "size": 13998,
+      "sha256": "104c779bf1e57a7159606eeb1ae30c042ed03c46cecd8a2d2f05f5f55c93dee8"
+    },
+    "evaluation/schema.py": {
+      "size": 3996,
+      "sha256": "24d59799409e0810987e10a0cd99d48112d46a8230c896c6de5e1397f8575655"
+    },
+    "evaluation/scoring.py": {
+      "size": 13827,
+      "sha256": "b0dadfb35bc5e9e116c3c9cff064b78a8f1898e0b5e8f94e755e07612262a2ad"
+    },
+    "evaluation/spatial/__init__.py": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evaluation/spatial/rubric.md": {
+      "size": 3637,
+      "sha256": "8dfe62c1c53360b2baa85a0d697cbc9a718898eef73c6c22af8424f8c425855f"
+    },
+    "evaluation/spatial/schema.py": {
+      "size": 132,
+      "sha256": "570af6d7c3512757abc56e1154000cfb57730eb760fabccf0646dbbca4287888"
+    },
+    "evaluation/video.py": {
+      "size": 8968,
+      "sha256": "a71b8a11ef0841fad8658881e6833c87a96e3638f6266b0b9b11a316752c4c8d"
+    },
+    "ops/b300_daily/architecture.json": {
+      "size": 1504,
+      "sha256": "245735ba438d9ea2d3a49992101412c11c59685bccfed7028a867f7acad79a07"
+    },
+    "ops/b300_daily/automated_protocol.json": {
+      "size": 596,
+      "sha256": "d94941bf4d3c6575eb2ce4f65e471b28ebc06b7cfb715b790782d36cbe0381ef"
+    },
+    "ops/b300_daily/benchmark_revision.py": {
+      "size": 3132,
+      "sha256": "d7842bf2168f66cc73cb7624ba860d906d771860f5e6e782bc73ea0475fef35f"
+    },
+    "ops/b300_daily/checklist_backup.py": {
+      "size": 881,
+      "sha256": "96d1794fb2bded189d249357f8a755c0018f30646a8a860d57e24512057a1023"
+    },
+    "ops/b300_daily/csv_checklist.py": {
+      "size": 7711,
+      "sha256": "9d2ed3c57a6e5c10bbb97e66e93e4eea3c2e50c0c551882605d82255a42c19b0"
+    },
+    "ops/b300_daily/eval_contract.py": {
+      "size": 4987,
+      "sha256": "f511499c2e8b59385939e0943ef0eba73df24ed2d1749996f010cb830a137533"
+    },
+    "ops/b300_daily/eval_recipe.json": {
+      "size": 2121,
+      "sha256": "a48b6d5350ff549f0b61b3add50a813ab5c6315f73c195adfc1b1b9d99c8adf2"
+    },
+    "ops/b300_daily/evaluation_publish.py": {
+      "size": 2020,
+      "sha256": "98c978dd162f0fc0f4b345aba2b3d2805278c35461ceab7631948c7fcd581400"
+    },
+    "ops/b300_daily/evaluation_runtime.py": {
+      "size": 3977,
+      "sha256": "9afeb4f7b6d1187803cb68d93cb4383496205ae5aa29a9a4ec62c8d9e4b4387a"
+    },
+    "ops/b300_daily/evaluation_worker.py": {
+      "size": 21174,
+      "sha256": "c13f5eeb994b0a6d0a46d8020e375747e806b1b127b726d77dc004e8dcec43f2"
+    },
+    "ops/b300_daily/gpu_policy.py": {
+      "size": 1971,
+      "sha256": "0e31bebd4cac9df9f75dfb33b6e62a082dfe5964c5358131915a578d2df2ff05"
+    },
+    "ops/b300_daily/inventory_decoder.py": {
+      "size": 3502,
+      "sha256": "f9a7d174313403b25a6f7b04733107da8bf2e69428fab9dacdf96a65f1bffa5f"
+    },
+    "ops/b300_daily/inventory_repair.py": {
+      "size": 4887,
+      "sha256": "a6807e6ac9b53e36d4337c146dff133b119f2fa6508ca270f88ea5453de9008a"
+    },
+    "ops/b300_daily/kda_contract.py": {
+      "size": 4179,
+      "sha256": "fa2f86781cee1bb765335905754aa79aa063cfde791433e5cf27c31bebc167c8"
+    },
+    "ops/b300_daily/queueing.py": {
+      "size": 3969,
+      "sha256": "f71caba8a8c9aa816f815dc8f98459bf69206e17164a14b8ef52e5ff7621af2d"
+    }
+  }
+}

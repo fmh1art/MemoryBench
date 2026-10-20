@@ -1,0 +1,95 @@
+{
+  "kind": "student",
+  "num_layers": 30,
+  "vsa2_layers": [
+    3,
+    7,
+    11,
+    15,
+    19,
+    23,
+    27
+  ],
+  "efla_layers": [
+    0,
+    1,
+    2,
+    4,
+    5,
+    6,
+    8,
+    9,
+    10,
+    12,
+    13,
+    14,
+    16,
+    17,
+    18,
+    20,
+    21,
+    22,
+    24,
+    25,
+    26,
+    28,
+    29
+  ],
+  "full_softmax_layers": [],
+  "direct_config": {
+    "topk": 32,
+    "algorithm": "direct_learned64",
+    "pooling": "scalar_head_learned",
+    "gate": "scalar",
+    "budget_scope": "shared_memory",
+    "target_full_attention": true,
+    "cube_shape": [
+      4,
+      4,
+      4
+    ],
+    "router_shape": [
+      2,
+      2,
+      2
+    ],
+    "router_backend": "tcgen_v7",
+    "router_chunk_rows": 512
+  },
+  "mask_memory_to_target": true,
+  "parameter_tensors": 1453,
+  "parameter_count": 5573893678,
+  "kda_config": {
+    "contract": "evophys_framewise_kda_head_l2_v2",
+    "dim": 3072,
+    "num_heads": 24,
+    "head_dim": 128,
+    "gate_rank": 128,
+    "num_layers": 30,
+    "keep_full_attention_layers": [
+      3,
+      7,
+      11,
+      15,
+      19,
+      23,
+      27
+    ],
+    "use_k_short_conv": true,
+    "k_short_conv_kernel_size": 4,
+    "k_short_conv_memory_causal": false
+  },
+  "recurrence": "joint_euler_lift_p4d",
+  "coefficients": [
+    0.49996419543247855,
+    0.16606849104245758,
+    0.03956639701147105,
+    0.0055802728230956505
+  ],
+  "precision": {
+    "master": "fp32",
+    "history": "bf16",
+    "memory_operands": "bf16",
+    "target": "fp32"
+  }
+}

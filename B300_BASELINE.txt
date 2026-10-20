@@ -1,0 +1,152 @@
+B300 evaluation development baseline — 2026-10-20
+================================================
+
+Branch: husicheng/b300-eval-v34-20261020
+Upstream: https://github.com/fmh1art/MemoryBench
+Parent: 45ab68fea8af30b874e4984054116657d29a8b7b
+Scoring: memory.v3.4.missing_evidence_zero
+Recipe: memorybench38k-v34-20261012 (649 cases)
+
+1. What this branch preserves
+
+evaluation/ contains the 36 evaluator files used by the frozen B300 basis,
+byte-for-byte identical to the parent commit. ops/b300_daily/ captures the
+actual job's 12 Python deployment adapters, eval_recipe.json and architecture.json.
+automated_protocol.json records the automatic metric settings from that job's
+run.json; it is a derived protocol record, not a copy of the case list.
+B300_SNAPSHOT.json records source hashes, provenance and capture time.
+
+The source job is:
+kda_vsa_d80k_lw20_flowmatch_step90000_total100000_cursor180000_20261020
+
+Production evaluator (NOT this development checkout):
+/mnt/cfs/d22676/husicheng/code/evaluation/memorybench38k_v34_20261012
+
+Production deployment code captured from:
+/mnt/cfs/d22676/husicheng/experiments/daily_kda_vsa_lw20_20261017/jobs/kda_vsa_d80k_lw20_flowmatch_step90000_total100000_cursor180000_20261020/evaluation/code
+
+Isolated B300 development checkout:
+/mnt/cfs/d22676/husicheng/code/MemoryBench-b300-eval-v34-20261020
+
+This is the deployed evaluation code, NOT upstream main at capture time.
+Main had later endpoint-sampling and human A/B/Tie comparison changes; neither
+is silently merged into this production baseline. Inference/model code, model
+weights, private benchmark media, case annotations, API credentials and scoring
+results are not included. The deployment adapters require external deployment
+resources; this is not a self-contained 649-case data/model distribution.
+
+2. Development isolation
+
+Do not switch, edit or repoint the production evaluator, live job code, cron,
+GPU handoff or cached results while developing this branch. Do not invoke the
+archived evaluation_worker.py against its production paths as a smoke test.
+No inference or judge service needs to start to edit/test metric implementations.
+
+CPU-only tests on B300, from this isolated checkout:
+
+  CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+    /mnt/cfs/d22676/fmh/envs/evophys-daily/bin/python -B -m pytest -q \
+    tests/test_automated.py tests/test_evaluation.py \
+    tests/test_evaluation_null_policy.py tests/test_api_config.py \
+    tests/test_b300_snapshot.py
+
+Check exact baseline source hashes:
+
+  python3 scripts/verify_b300_snapshot.py
+
+The hash check is intentionally a frozen-baseline check. After intentional
+development changes it should fail; do not automatically rewrite the manifest
+or present changed code as the original production baseline. Record a new
+metric/protocol version and use separate output directories for experiments.
+
+Metric implementation: evaluation/automated/metrics.py
+Video decoding/alignment: evaluation/automated/video.py
+CLI, resume and aggregation: evaluation/automated/run.py
+Semantic aggregation: evaluation/scoring.py
+Rubrics and judgment schemas: evaluation/{gate,inventory,appearance,spatial}/
+
+3. Video quality metrics currently ENABLED in daily evaluation
+
+Pixel/reference fit:
+  mse, mae                         lower is better
+  psnr_db                         higher; -10 log10(clip MSE), not mean frame PSNR
+  ssim                            higher; 11x11 Gaussian, sigma 1.5, RGB mean
+  ms_ssim                         higher; five fixed scales
+
+Temporal/reference fit:
+  temporal_difference_l1           lower; L1 of Gen vs GT signed frame differences
+
+Last aligned frame:
+  final_mse                       lower
+  final_ssim                      higher
+
+Diagnostics WITHOUT a universal better/worse direction:
+  gt_laplacian_variance,
+  gen_laplacian_variance           sharpness proxies; noise also increases them
+  gt_adjacent_l1, gen_adjacent_l1  change/motion proxies; static is not necessarily good
+
+These are 12 scalar outputs, not 12 independent notions of video quality.
+There is no weighted combined automatic "video quality score".
+
+4. Implemented but NOT enabled in the captured daily run
+
+  lpips, final_lpips: pretrained AlexNet LPIPS v0.1; lower is better.
+  niqe: PyIQA NIQE of generated frames, averaged; lower is better.
+
+The captured run has learned=[] and device=cpu. The worker does not pass
+--learned. Enabling these optional metrics is a new diagnostic experiment,
+not a reproduction of the current daily metric set. They require their optional
+dependencies/weights and workers=1. Missing dependencies/weights fail explicitly;
+there is no random-weight or substitute metric fallback. NIQE is a frame-quality
+metric, not a temporal video-quality model.
+
+CLIP similarity, FID and FVD are NOT implemented in this frozen version.
+
+5. Sampling and aggregation contract
+
+All pixel metrics use RGB in [0,1]. Evaluate the full shared future interval,
+excluding Prefix, at 24 Hz plus the last shared timestamp, with no frame cap.
+Use decoded timestamps and explicit GT/Gen start offsets, nearest-frame matching,
+and maximum sampling error/inter-stream skew 0.1 seconds. Do not independently
+normalize or stretch the two timelines.
+
+Fit GT within 320x192 preserving aspect ratio, then evaluate at its content size
+(4:3 gives 256x192). Fit/pad Gen to that size. Inspect shared duration separately:
+a truncated output is scored on overlap, which is not proof of task completion.
+
+Average frame scores within each case, then weight cases equally. PSNR uses
+clip MSE. Exact identity PSNR is "inf"; MS-SSIM is null below 161 pixels on either
+axis; temporal metrics are null for fewer than two frames. Nulls and errors do
+not become zero. Automatic diagnostics include Gate-failed cases independently.
+
+6. Memory/Gate are separate from video quality
+
+Gate = Observability AND Action Following. Observability can reject persistent
+blur/ghosting/corruption; it is not a continuous aesthetic-quality score.
+Memory dimensions are Inventory (presence/count), Appearance (visual/shape,
+matched objects only), and Spatial (localization/relations). Their core score
+uses temporal means followed by a geometric mean, scaled to 100. Gate failures
+receive zero. v3.4 missing-core-evidence policy assigns case zero while retaining
+raw missing evidence; API/schema errors are failures, not valid zero scores.
+Environment is optional and excluded from the core score; it is not enabled by
+the default protocol. Gate uses 12 aligned frames; Memory uses 8 aligned pairs,
+unlike the full-interval 24 Hz automatic metrics.
+
+High pixel similarity or sharpness does not establish memory, physical
+correctness or good action following; camera alignment/background dominate many
+full-reference metrics. Keep automatic diagnostics and semantic scores separate.
+
+7. Inventory deployment repair
+
+ops/b300_daily/inventory_repair.py preserves the deployed bounded repair for the
+specific native (gt_count, gen_count) == (0, 0) format error. It preserves the
+failed reply and makes a constrained-decoding request with the same prompt,
+images, model and sampling. Native validation/scoring remains authoritative.
+Schema-valid zero scores are never retried to improve scores.
+
+The ordinary `python -m evaluation.run` CLI does NOT automatically install this
+deployment repair; the captured evaluation_worker.py explicitly uses make_judge.
+Do not describe the native CLI alone as reproducing the deployed retry behavior.
+The adapters' exact runtime/identity guards are retained, not loosened for this
+checkout. Unsupported identities fail explicitly.
