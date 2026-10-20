@@ -102,6 +102,8 @@ def make_sheets(
             f"Read interval must lie within shared timeline [0, {end:.6f}] seconds"
         )
     targets = [end * index / 11 for index in range(12)]
+    # Preserve exact interval endpoints; floating arithmetic can overshoot end.
+    targets[0], targets[-1] = 0.0, end
     read_indices = [
         i + 1 for i, t in enumerate(targets) if case.read_start_seconds <= t <= read_end
     ]
