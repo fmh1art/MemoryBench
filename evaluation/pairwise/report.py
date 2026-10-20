@@ -159,14 +159,17 @@ def summarize(records, study, replicates=1000, seed=42):
         }
     counts = Counter(r["task"] for r in records if r["state"] == "voted")
     pair_count = len(study.models) - 1 if study.baseline else math.comb(len(study.models), 2)
-    expected = len(study.cases) * pair_count
+    selected_tasks = study.provenance.get("selected_task_ids")
+    expected = len(selected_tasks) if selected_tasks is not None else len(study.cases) * pair_count
     return {
         "version": VERSION, "title": study.title,
         "protocol": {
             "id": ANNOTATION_PROTOCOL,
             "source": "Training Object Permanence in World Models, §4.4 and Table 2",
             "url": "https://arxiv.org/html/2609.28654v1#S4.SS4",
-            "annotation": "One direct A/B/Tie human choice, jointly considering text alignment, natural motion/physical plausibility and object permanence",
+            "annotation": "One direct A/B/Tie " + ("model" if study.provenance.get("evaluator") else "human") + " choice, jointly considering text alignment, natural motion/physical plausibility and object permanence",
+            **({"evaluator": study.provenance["evaluator"],
+                "input_protocol": study.provenance.get("input_protocol")} if study.provenance.get("evaluator") else {}),
             "fit": "Bradley–Terry maximum likelihood; ties .5/.5; one virtual draw per model distributed evenly over opponents",
             "elo": "1500 + (400 / ln(10)) * centered log strength; global mean 1500 when the observed comparison graph is connected",
             "weighting": "One unit per actual judgment; no majority voting, per-case reweighting or Gate-derived outcomes",

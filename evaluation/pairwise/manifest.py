@@ -109,4 +109,12 @@ def load_study(path):
                 continue
             key = digest([case.case_id, left, right])[:24]
             tasks[key] = {"id": key, "case": case, "left": left, "right": right}
+    selected = study.provenance.get("selected_task_ids")
+    if selected is not None:
+        if (not isinstance(selected, list) or not selected
+                or any(not isinstance(key, str) for key in selected)
+                or len(set(selected)) != len(selected)
+                or set(selected) - tasks.keys()):
+            raise ValueError("selected_task_ids must be a nonempty list of distinct known tasks")
+        tasks = {key: tasks[key] for key in selected}
     return study, signature, tasks

@@ -117,6 +117,57 @@ SQLite WAL 与事务保证并发配额；同一评估者不能重复投票。A/B
 
 不要公开数据库、原始 manifest 或管理员导出目录。`runs/` 与本地数据库已忽略，不把身份、续评码、视频和结果提交进 Git。
 
+## GPT5.6 抽帧评估
+
+模型评估沿用同一个 `Store.save` 和 A/B/Tie 计分协议，使用独立研究清单和数据库，
+评估者的 **id 和 name 均为 `gpt5.6`**。研究 provenance 标记其为模型判断，
+不会描述为真人投票。每次请求只发送 GT、A、B 三张 2×4 拼图；每张包含 8 帧、
+实际时间戳和视频时长，不发送 History。History 文件只为兼容研究清单保留引用。
+
+每个视频在自己的可用 future 内均匀采样，最长截取到 GT 结束时刻；保留纵横比。
+短视频不延长到 GT 时长，不能把各拼图相同格位置当成相同时间。若片段不足 8 个
+不同帧，会重复最近的真实帧并记录 `unique_frames`，不生成虚构画面。
+文本条件来自生成记录；缺失时明确标记“未记录”，不由 GT 注释猜测。
+
+```bash
+python -m pip install -e '.[pairwise,pairwise-model]'
+
+# 从已同步的评估 jobs 创建固定的 1000 条比较清单。
+python -m evaluation.pairwise.model_study \
+  --jobs /path/to/MemoryBenchPredictionsV1/.metadata/evaluation_runs/qwen38_20261018/jobs.json \
+  --predictions /path/to/MemoryBenchPredictionsV1 \
+  --data /path/to/MemoryBenchDataV1 \
+  --output evaluation/pairwise/runs/gpt5.6-20261020 \
+  --count 1000 --seed 42
+
+# 仅生成首条的三个拼图，检查 inputs/*.json 中的路径，不调用 API。
+python -m evaluation.pairwise.model_judge \
+  --run evaluation/pairwise/runs/gpt5.6-20261020 \
+  --api-config /path/to/gpt5_6_sol_hydra.yaml --preview
+
+# 首条真实调用；验证后去掉 --limit 1，完成其余任务。相同命令也用于续跑。
+python -m evaluation.pairwise.model_judge \
+  --run evaluation/pairwise/runs/gpt5.6-20261020 \
+  --api-config /path/to/gpt5_6_sol_hydra.yaml --limit 1
+```
+
+配置从本机 YAML 读取 `api_type: chat`、`openai_base_url`、`api_version`、`key`、
+`llm_name`、`max_parrel_requests`；密钥不写入结果。模型须与研究声明一致，
+本次为 `gpt-5.6-sol`。可选 `price_yuan_per_million_token` 用于按返回 usage 估算费用。
+
+准备脚本取真实视频模型的共同案例，默认排除 GT 不相同的 GE-SIM、DreamDojo。
+先校验选中视频的 SHA256，再按固定种子均衡抽取模型对，按共同案例的 IID/OOD
+比例分配，尽量均衡案例出现次数。`provenance.selected_task_ids` 限定本次任务，
+报告也以这份清单计算完成度；不设置该字段时仍按原来的完整模型组合工作。
+A/B 位置使用数据库密钥随机确定并持久化，续跑保持不变。
+
+输出包含 `study.json`、`plan.json`、`verified_sources.json`、`prompt_sources.json`、
+`inputs/`（逐题完整 prompt 和三图信息）、`sheets/`（拼图与实际帧时间）、
+`responses/`（逐次响应、usage、校验结果）、`votes.sqlite3` 和 `report/`。
+`rater_session.local.json` 含该评估者的私有续评码，权限为 0600。
+有效响应先落盘再入库，已入库的题目跳过；格式错误、超时和 API 失败不会作为 tie。
+一个有效评估者不产生按评估者 bootstrap 的置信区间。
+
 ## 验证
 
 ```bash
