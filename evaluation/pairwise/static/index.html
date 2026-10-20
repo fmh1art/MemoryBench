@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MemoryBench · 人工记忆评估</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">M<span class="brand-dot">●</span> <span>MemoryBench</span></a><span class="header-label">HUMAN EVALUATION</span><div id="identity" hidden><span id="rater-name"></span><button id="logout" class="text-button">退出</button></div></header>
+  <main>
+    <section id="welcome" class="welcome" hidden>
+      <p class="eyebrow">REFERENCE-GUIDED · A/B COMPARISON</p>
+      <h1>哪个预测，<br>记住了真实的世界？</h1>
+      <p class="intro">回看历史，参考真实后续，比较两个匿名预测。每题只选 A、B 或 Tie。</p>
+      <div class="login-layout">
+        <form id="login-form" class="panel login-panel">
+          <h2>开始评估</h2><label for="name">你的评估者代号</label><input id="name" maxlength="60" autocomplete="nickname" placeholder="例如 reviewer-01">
+          <label for="resume-code">续评码 <span class="muted">已有记录时填写</span></label><input id="resume-code" maxlength="128" autocomplete="off" placeholder="首次评估留空">
+          <button class="primary" type="submit">进入评估 <span>→</span></button>
+        </form>
+        <div class="panel rule-panel"><p class="eyebrow">一个问题 · 三个选项</p><h2>综合比较，选出更好的预测。</h2><p>参考 History、Text Prompt 和 GT，综合考虑：</p><ol><li>是否符合文本描述。</li><li>运动是否自然，是否符合物理规律。</li><li>遮挡前后物体的存在、颜色、形状和数量是否合理。</li></ol><p><strong>A</strong>：A 整体更好。<br><strong>B</strong>：B 整体更好。<br><strong>Tie</strong>：两者整体表现相近，没有明显优劣。</p><p class="muted">三条标准合并判断，不需要分别打分。GT 用于参考目标状态，允许合理的视角与动作轨迹差异。请独立作答。</p></div>
+      </div>
+    </section>
+
+    <section id="workspace" hidden>
+      <div class="workspace-heading"><div><p class="eyebrow">PAIRWISE MEMORY STUDY</p><h1>观察，比较，做出判断。</h1></div><div class="progress"><strong id="completed">0</strong> 题已提交<span id="save-state">草稿自动保存</span></div></div>
+      <details class="session-details"><summary>续评码与评估规则</summary><p>换设备时，用此续评码恢复记录。请自行保存，不要分享：<code id="my-code">当前浏览器已登录；续评码见首次登记时保存的记录。</code><button id="copy-code" class="text-button" hidden>复制</button></p><p>综合考虑文本一致性、运动与物理合理性、物体恒存性，只选择 A、B 或 Tie。GT 用于参考目标状态，允许合理视角和动作轨迹差异。整体表现相近时选 Tie。</p></details>
+
+      <div id="task-content">
+        <section class="panel context-panel"><div class="context-label"><span class="step">01</span><h2>理解任务</h2></div><div><h3>Text Prompt</h3><p id="common-prompt" class="prompt-text"></p><div id="separate-prompts" class="two-columns" hidden><div><h3>A 的文本条件</h3><p id="prompt-a" class="prompt-text"></p></div><div><h3>B 的文本条件</h3><p id="prompt-b" class="prompt-text"></p></div></div><details><summary>评估说明 <span class="muted">用于评估，不代表模型输入</span></summary><dl><dt>要求动作</dt><dd id="action-description"></dd><dt>目标范围</dt><dd id="memory-target"></dd><dt>动作完成条件</dt><dd id="success-criterion"></dd></dl></details></div></section>
+
+        <div class="reference-grid">
+          <article class="panel video-card"><div class="video-heading"><h2>History Video</h2><span class="badge">历史 · 独立回看</span></div><div class="video-wrap"><video id="video-history" controls muted playsinline preload="auto"></video><span id="error-history" class="video-error" hidden>历史视频无法播放，请报告播放问题。</span></div><div class="video-footer"><span>观察此前出现过的物体和状态</span><label>倍速 <select id="history-speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option><option value="16">16×</option></select></label></div></article>
+          <article class="panel video-card"><div class="video-heading"><h2>GT Future</h2><span class="badge">真实后续 · 参考</span></div><div class="video-wrap"><video id="video-gt" controls muted playsinline preload="auto"></video><span id="error-gt" class="video-error" hidden>GT 无法播放，请报告播放问题。</span></div><div class="video-footer"><span>参考目标状态，允许合理视角差异</span><span id="read-label"></span></div></article>
+        </div>
+
+        <div class="prediction-grid">
+          <article class="panel video-card prediction"><div class="video-heading"><h2><span class="prediction-letter">A</span> Prediction A</h2><span class="badge">匿名预测</span></div><div class="video-wrap"><video id="video-A" controls muted playsinline preload="auto"></video><span id="error-A" class="video-error" hidden>A 无法播放，请报告播放问题。</span></div><div class="video-footer"><span id="duration-A">可双击视频放大</span><button class="text-button fullscreen" data-slot="A">放大 ↗</button></div></article>
+          <article class="panel video-card prediction"><div class="video-heading"><h2><span class="prediction-letter">B</span> Prediction B</h2><span class="badge">匿名预测</span></div><div class="video-wrap"><video id="video-B" controls muted playsinline preload="auto"></video><span id="error-B" class="video-error" hidden>B 无法播放，请报告播放问题。</span></div><div class="video-footer"><span id="duration-B">可双击视频放大</span><button class="text-button fullscreen" data-slot="B">放大 ↗</button></div></article>
+        </div>
+
+        <section class="panel playback"><button id="play-all" class="secondary">▶ 播放 GT / A / B</button><button id="restart" class="text-button">↺ 重播</button><div class="timeline-control"><input id="timeline" type="range" min="0" max="1" value="0" step="0.01" aria-label="同步时间轴"><svg class="read-band" viewBox="0 0 1000 4" preserveAspectRatio="none" aria-label="绿色区间为评估段"><title>绿色区间为评估段</title><rect class="read-track" width="1000" height="4"></rect><rect id="read-interval" class="read-highlight" width="1000" height="4"></rect></svg></div><span id="time-label">0.00 / 0.00 s</span><label>倍速 <select id="future-speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label><label><input id="sync" type="checkbox" checked> 同步 GT / A / B</label><button id="jump-read" class="text-button">到评估段</button></section>
+
+        <form id="vote-form" class="panel evaluation-panel">
+          <div class="context-label"><span class="step">02</span><h2>综合来看，哪个预测更好？</h2></div>
+          <p class="comparison-rule">综合考虑文本一致性、运动与物理合理性，以及遮挡前后物体状态是否正确。两者整体表现相近时选 Tie。</p>
+          <div class="choices three overall-choices">
+            <label class="choice"><input type="radio" name="choice" value="A"><span>A</span></label>
+            <label class="choice"><input type="radio" name="choice" value="B"><span>B</span></label>
+            <label class="choice"><input type="radio" name="choice" value="tie"><span>Tie</span></label>
+          </div>
+          <div class="submit-row"><div><span id="media-state" class="muted">正在加载视频…</span><br><span class="muted">提交后保存到服务器，可随时退出后续评。</span></div><button type="submit" id="submit-vote" class="primary">提交并进入下一题 →</button></div>
+        </form>
+        <details class="issue-panel"><summary>视频无法播放或素材有问题？</summary><p>这是素材故障报告，不计入 A/B/Tie 投票。报告后跳过本题，供管理员检查。</p><label for="issue-description">问题说明</label><input id="issue-description" maxlength="2000" placeholder="例如 GT 加载失败 / History 内容不对应"><button id="report-issue" class="secondary">报告问题并跳过</button></details>
+      </div>
+      <section id="finished" class="panel finished" hidden><p class="eyebrow">PROGRESS SAVED</p><h2 id="finished-title">当前没有待评任务</h2><p id="finished-description"></p><button id="refresh-tasks" class="primary">刷新任务</button></section>
+    </section>
+    <div id="message" role="status" aria-live="polite" hidden></div>
+  </main>
+  <footer>MemoryBench <span>·</span> 以历史为证据，以真实状态为参考。</footer>
+</body>
+</html>

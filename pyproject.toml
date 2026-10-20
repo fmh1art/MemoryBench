@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = ["httpx>=0.27", "pydantic>=2", "av>=18", "Pillow>=11", "numpy>=2", "imageio>=2"]
 
 [project.optional-dependencies]
+pairwise = ["fastapi>=0.115,<1", "starlette>=0.49.1,<2", "uvicorn>=0.30,<1", "scipy>=1.14,<2"]
 automated = ["scipy>=1.14"]
 automated-perceptual = ["scipy>=1.14", "torch>=2.2", "torchvision>=0.17", "lpips>=0.1.4"]
 automated-quality = ["scipy>=1.14", "pyiqa>=0.1.13"]
@@ -18,5 +19,5 @@ automated-quality = ["scipy>=1.14", "pyiqa>=0.1.13"]
 include = ["evaluation*", "mem_case_anno_demo*"]
 
 [tool.setuptools.package-data]
-evaluation = ["common.md", "memory_common.md", "README.md", "cases.example.json", "*/rubric.md", "automated/README.md"]
+evaluation = ["common.md", "memory_common.md", "README.md", "cases.example.json", "*/rubric.md", "automated/README.md", "pairwise/static/*", "pairwise/README.md", "pairwise/study.example.json", "pairwise/requirements.txt", "pairwise/run.sh"]
 mem_case_anno_demo = ["static/*"]

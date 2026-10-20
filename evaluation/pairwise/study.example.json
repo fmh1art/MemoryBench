@@ -1,0 +1,24 @@
+{
+  "version": "memorybench.pairwise.v1",
+  "title": "MemoryBench · 人工记忆评估",
+  "seed": 42,
+  "raters_per_pair": 3,
+  "baseline": null,
+  "models": ["Model-1", "Model-2"],
+  "cases": [
+    {
+      "case_id": "drawer_demo",
+      "history": {"path": "videos/history.mp4", "duration_seconds": 20.0},
+      "gt": {"path": "videos/gt_future.mp4", "start_seconds": 0.0, "duration_seconds": 6.0},
+      "action_description": "打开最上层抽屉并观察里面的物体",
+      "memory_target": "抽屉内部的所有物体；不包括抽屉本身",
+      "success_criterion": "打开正确抽屉并展示内部区域",
+      "read_start_seconds": 2.0,
+      "read_end_seconds": 6.0,
+      "predictions": {
+        "Model-1": {"path": "videos/model_1.mp4", "duration_seconds": 6.0, "prompt_recorded": true, "prompt": "Open the top drawer."},
+        "Model-2": {"path": "videos/model_2.mp4", "duration_seconds": 6.0, "prompt_recorded": true, "prompt": "Open the top drawer."}
+      }
+    }
+  ]
+}
