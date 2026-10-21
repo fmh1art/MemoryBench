@@ -13,10 +13,12 @@ from .manifest import digest, load_study, split
 from .sheets import duration, sha256, write_json
 
 
-def sample_plan(models, cases, count, seed):
+def sample_plan(models, cases, count, seed, pairs=None):
     """Balance unordered model pairs, split proportions and case exposure."""
     rng = random.Random(seed)
-    pairs = list(itertools.combinations(sorted(models), 2))
+    pairs = list(itertools.combinations(sorted(models), 2)) if pairs is None else list(pairs)
+    if not pairs or len(set(pairs)) != len(pairs) or any(a >= b or a not in models or b not in models for a, b in pairs):
+        raise ValueError("Pairs must be distinct sorted pairs of study models")
     rng.shuffle(pairs)
     if not 0 < count <= len(cases) * len(pairs):
         raise ValueError("Requested task count is outside the common cohort")
@@ -84,7 +86,7 @@ def prepare(args):
     if (output / "study.json").exists():
         raise ValueError("Study already exists; use model_judge to resume it")
     jobs = json.loads(args.jobs.read_text())
-    models = sorted({j["model"] for j in jobs} - set(args.exclude))
+    models = sorted(m for m in {j["model"] for j in jobs} - set(args.exclude) if not m.endswith("_tail"))
     lookup = {m: {} for m in models}
     for job in jobs:
         if job["model"] in lookup:

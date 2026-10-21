@@ -168,6 +168,42 @@ A/B 位置使用数据库密钥随机确定并持久化，续跑保持不变。
 有效响应先落盘再入库，已入库的题目跳过；格式错误、超时和 API 失败不会作为 tie。
 一个有效评估者不产生按评估者 bootstrap 的置信区间。
 
+### 真实 GT 与仿真 GT、定额追加比较
+
+`model_study` 默认去除所有以 `_tail` 结尾的模型；`model_judge` 在发送请求前
+拒绝包含 `_tail` 的待评任务。历史批次和原始投票保留，新榜单使用去除这些模型后的研究。
+
+`extend_study` 在新目录导入原批次不含 `_tail` 的有效投票，保留用户 ID、A/B 映射
+与选择，并为 DreamDojo、GE-SIM 添加真实 GT 和对应仿真 GT。一方为仿真模型时
+有 4 张图，两方均为仿真模型时有 5 张图；每张仍为 8 帧，不发送 History。
+各预测按自己的参考时长抽帧，并使用相应任务描述，避免用真实 GT 的结束时间截断
+较长的仿真任务。渲染风格差异本身不计为预测错误，预测相对于自身 GT 的状态偏差仍计入。
+
+```bash
+python -m evaluation.pairwise.extend_study \
+  --source evaluation/pairwise/runs/gpt5.6-20261020 \
+  --output evaluation/pairwise/runs/gpt5.6-20261021-dual-gt \
+  --predictions /path/to/MemoryBenchPredictionsV1 \
+  --sim-data /path/to/MemoryDataV1-Sim \
+  --sim-per-pair 8 --seedance-per-pair 200 --seed 20261021
+
+python -m evaluation.pairwise.model_judge \
+  --run evaluation/pairwise/runs/gpt5.6-20261021-dual-gt \
+  --api-config /path/to/gpt5_6_sol_hydra.yaml
+```
+
+清单在 API 调用前固定，并写入 `preregistration.json`。Seedance 三个版本在同一批
+200 个案例上各比较一次，总计 600 条；按原研究共同案例中的 IID/OOD 比例抽样，
+避开已有的 Seedance 比较案例。仿真模型对按固定配额均衡抽样，缺少可校验 GT 的
+案例记录在排除清单中。抽样只读取已有任务身份，不依据选择结果挑选案例、改 prompt、
+追加配额或提前停止。假设不会发送给 judge；排序按实际完整结果计算。
+
+新的 `provenance.model_references` 为 `case_id → model → {clip, action_description,
+memory_target, success_criterion}`。参考文件也计入研究指纹；`reference_models` 中
+的模型缺少自己的 GT 时拒绝运行。`allow_partial_models: true` 允许同一研究中
+部分模型仅覆盖部分案例，任务只能引用该案例实际可用的预测；旧研究默认仍要求完整共同案例。
+有定额加样时，整体排行继续按每条实际投票等权拟合，并应另报新增匹配案例的直接胜平负。
+
 ## 验证
 
 ```bash

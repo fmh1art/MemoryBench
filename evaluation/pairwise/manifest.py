@@ -32,6 +32,13 @@ class Prediction(Clip):
     prompt_recorded: bool = False
 
 
+class ModelReference(Record):
+    clip: Clip
+    action_description: str = ""
+    memory_target: str = ""
+    success_criterion: str = ""
+
+
 class Case(Record):
     case_id: str = Field(min_length=1)
     history: Clip
@@ -76,7 +83,10 @@ class Study(Record):
         if len({c.case_id for c in self.cases}) != len(self.cases):
             raise ValueError("case_id must be globally unique; qualify duplicate batch IDs")
         for case in self.cases:
-            if set(case.predictions) != set(self.models):
+            if self.provenance.get("allow_partial_models") is True:
+                if len(case.predictions) < 2 or set(case.predictions) - set(self.models):
+                    raise ValueError(f"Cases need at least two known models: {case.case_id}")
+            elif set(case.predictions) != set(self.models):
                 raise ValueError(f"All models must cover the common cohort: {case.case_id}")
         return self
 
@@ -87,6 +97,11 @@ def split(case_id):
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def model_reference(study, case_id, model):
+    value = study.provenance.get("model_references", {}).get(case_id, {}).get(model)
+    return ModelReference.model_validate(value) if value is not None else None
 
 
 def load_study(path):
@@ -101,10 +116,33 @@ def load_study(path):
                 raise ValueError(f"Missing video for {case.case_id}: {file}")
             stat = file.stat()
             fingerprints.append((clip.path, stat.st_size, stat.st_mtime_ns))
+    references = study.provenance.get("model_references", {})
+    cases = {case.case_id: case for case in study.cases}
+    required = study.provenance.get("reference_models", [])
+    if not isinstance(references, dict) or set(references) - cases.keys():
+        raise ValueError("Model references must name existing cases")
+    if not isinstance(required, list) or set(required) - set(study.models):
+        raise ValueError("reference_models must name study models")
+    for cid, entries in references.items():
+        if not isinstance(entries, dict) or set(entries) - cases[cid].predictions.keys():
+            raise ValueError("Model references must name available case predictions")
+        for model in entries:
+            reference = model_reference(study, cid, model)
+            clip = reference.clip
+            clip.path = str((path.parent / clip.path).resolve())
+            file = Path(clip.path)
+            if not file.is_file():
+                raise ValueError(f"Missing model reference for {cid}/{model}: {file}")
+            stat = file.stat()
+            fingerprints.append((clip.path, stat.st_size, stat.st_mtime_ns))
+            entries[model] = reference.model_dump()
+    for case in study.cases:
+        if (set(required) & case.predictions.keys()) - references.get(case.case_id, {}).keys():
+            raise ValueError(f"Missing required model reference for {case.case_id}")
     signature = digest([study.model_dump(), fingerprints])
     tasks = {}
     for case in study.cases:
-        for left, right in itertools.combinations(sorted(study.models), 2):
+        for left, right in itertools.combinations(sorted(case.predictions), 2):
             if study.baseline and study.baseline not in (left, right):
                 continue
             key = digest([case.case_id, left, right])[:24]

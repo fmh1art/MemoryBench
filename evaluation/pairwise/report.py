@@ -158,9 +158,10 @@ def summarize(records, study, replicates=1000, seed=42):
             "position_non_tie_n": len(non_ties),
         }
     counts = Counter(r["task"] for r in records if r["state"] == "voted")
-    pair_count = len(study.models) - 1 if study.baseline else math.comb(len(study.models), 2)
     selected_tasks = study.provenance.get("selected_task_ids")
-    expected = len(selected_tasks) if selected_tasks is not None else len(study.cases) * pair_count
+    expected = len(selected_tasks) if selected_tasks is not None else sum(
+        len(case.predictions) - 1 if study.baseline and study.baseline in case.predictions
+        else 0 if study.baseline else math.comb(len(case.predictions), 2) for case in study.cases)
     return {
         "version": VERSION, "title": study.title,
         "protocol": {
