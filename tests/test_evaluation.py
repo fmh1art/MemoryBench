@@ -593,6 +593,67 @@ def test_connection_timeout_does_not_use_full_generation_timeout():
     asyncio.run(execute())
 
 
+def test_resume_keeps_successful_calls_and_retries_only_failed_dimensions(case, tmp_path):
+    service = MockService()
+    service.fail = "appearance"
+    output = tmp_path / "resumable"
+
+    async def execute():
+        judge = Judge("https://mock.test", "new-vlm", retries=0, resume=True,
+                      transport=httpx.MockTransport(service))
+        try:
+            first = await evaluate_case(case, judge, output)
+            assert first["status"] == "error"
+            service.fail = None
+            service.calls.clear()
+            second = await evaluate_case(case, judge, output, resume=True)
+            assert second["status"] == "scored"
+            assert service.calls == ["appearance"] * 8
+            record = json.loads((output / "judges/frame_1/appearance.json").read_text())
+            assert len(record["attempts"]) == 2
+            assert "error" in record["attempts"][0]
+            assert "parsed" in record["attempts"][1]
+            service.calls.clear()
+            third = await evaluate_case(case, judge, output, resume=True)
+            assert third["status"] == "scored" and service.calls == []
+        finally:
+            await judge.close()
+
+    asyncio.run(execute())
+
+
+def test_gpt_gateway_parameters_and_model_isolation(case, tmp_path):
+    service = MockService()
+    service.outputs["gate"]["observability"]["label"] = 0
+    output = tmp_path / "gpt"
+
+    async def handle(request):
+        body = json.loads(request.content)
+        assert "max_tokens" not in body and body["max_completion_tokens"] == 8192
+        assert request.headers["api-key"] == "private-test-key"
+        assert request.url.params["api-version"] == "2024-02-01"
+        return await service(request)
+
+    async def execute():
+        for model in ("gpt-one", "gpt-two"):
+            judge = Judge("https://mock.test", model, max_tokens=8192,
+                token_parameter="max_completion_tokens", request_headers={"api-key": "private-test-key"},
+                request_params={"api-version": "2024-02-01"}, resume=True,
+                transport=httpx.MockTransport(handle))
+            try:
+                result = await evaluate_case(case, judge, output, resume=output.exists())
+                if model == "gpt-one":
+                    assert result["status"] == "gate_failed"
+                else:
+                    assert result["status"] == "error" and "Saved judge request differs" in result["error"]
+            finally:
+                await judge.close()
+        assert service.calls == ["gate"]
+        assert "private-test-key" not in (output / "judges/gate.json").read_text()
+
+    asyncio.run(execute())
+
+
 def test_memory_pairs_sample_middle_eighty_percent_without_collages(case, tmp_path):
     _, _, gate_sampling = make_sheets(case, tmp_path)
     metadata = make_memory_pairs(case, tmp_path, gate_sampling)

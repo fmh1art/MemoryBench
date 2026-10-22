@@ -2,7 +2,9 @@
 
 import asyncio
 import base64
+import hashlib
 import json
+import time
 from math import isfinite
 from pathlib import Path
 
@@ -80,6 +82,10 @@ class Judge:
         qpm=None,
         tpm=None,
         tokens_per_request=20000,
+        token_parameter="max_tokens",
+        request_headers=None,
+        request_params=None,
+        resume=False,
     ):
         if (
             concurrency < 1
@@ -97,6 +103,7 @@ class Judge:
             "response_format",
             "temperature",
             "max_tokens",
+            "max_completion_tokens",
         }
         if reserved & extra_body.keys():
             raise ValueError(
@@ -105,6 +112,12 @@ class Judge:
         self.endpoint, self.model, self.api_key = endpoint, model, api_key
         self.retries, self.max_tokens, self.extra_body = retries, max_tokens, extra_body
         self.temperature = temperature
+        if token_parameter not in ("max_tokens", "max_completion_tokens"):
+            raise ValueError("Unsupported output token parameter")
+        self.token_parameter = token_parameter
+        self.request_headers = dict(request_headers or {})
+        self.request_params = dict(request_params or {})
+        self.resume = resume
         self.pacer = RequestPacer(qpm, tpm, tokens_per_request)
         self.enforce_token_reservation = tpm is not None
         self.limit = asyncio.Semaphore(concurrency)
@@ -193,13 +206,41 @@ class Judge:
             ],
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
+            "token_parameter": self.token_parameter,
             "attempts": [],
         }
+        signature = {
+            "endpoint": self.endpoint,
+            "params": self.request_params,
+            "model": self.model,
+            "system": common,
+            "prompt": prompt,
+            "images": [hashlib.sha256(path.read_bytes()).hexdigest() for path in images],
+            "max_tokens": self.max_tokens,
+            "token_parameter": self.token_parameter,
+            "temperature": self.temperature,
+            "extra_body": self.extra_body,
+        }
+        record["request_signature"] = hashlib.sha256(
+            json.dumps(signature, ensure_ascii=False, sort_keys=True).encode()
+        ).hexdigest()
+        record["image_sha256"] = signature["images"]
+        record_path = output / f"{dimension}.json"
+        if self.resume and record_path.exists():
+            previous = json.loads(record_path.read_text())
+            if previous.get("request_signature") != record["request_signature"]:
+                raise ValueError("Saved judge request differs in model, inputs or protocol; use a new output directory")
+            record = previous
+            for event in reversed(record["attempts"]):
+                if event.get("parsed") is not None:
+                    judgment = schema.model_validate(event["parsed"])
+                    validate_evidence(dimension, judgment, context["sampling"]["read_frame_indices"], context["case"]["lighting_style"])
+                    return judgment
         repair = ""
         for attempt in range(self.retries + 1):
             body = {
                 "model": self.model,
-                "max_tokens": self.max_tokens,
+                self.token_parameter: self.max_tokens,
                 "stream": False,
                 "response_format": {"type": "json_object"},
                 "messages": [
@@ -214,7 +255,7 @@ class Judge:
             }
             if self.temperature is not None:
                 body["temperature"] = self.temperature
-            event = {"attempt": attempt + 1}
+            event = {"attempt": len(record["attempts"]) + 1}
             if repair:
                 event["validation_repair"] = repair
             retryable = True
@@ -222,11 +263,15 @@ class Judge:
                 headers = (
                     {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
                 )
+                headers.update(self.request_headers)
                 async with self.limit:
                     await self.pacer.wait()
+                    event["started_at"] = time.time()
+                    write_json(record_path, {**record, "attempts": record["attempts"] + [event]})
                     response = await self.client.post(
-                        self.endpoint, json=body, headers=headers
+                        self.endpoint, json=body, headers=headers, params=self.request_params
                     )
+                event["elapsed_seconds"] = time.time() - event["started_at"]
                 event["http_status"] = response.status_code
                 if response.status_code != 200:
                     retryable = (
@@ -235,6 +280,8 @@ class Judge:
                     )
                     raise ValueError(f"VLM HTTP {response.status_code}")
                 payload = response.json()
+                event["response_model"] = payload.get("model")
+                event["response_id"] = payload.get("id")
                 event["usage"] = payload.get("usage")
                 if self.enforce_token_reservation:
                     # This is a configuration failure, not a reason to repeat a charged request.

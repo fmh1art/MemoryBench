@@ -211,6 +211,49 @@ v3 excludes them. Never rebrand those old labels as v3 by recomputing Python for
 Within a v3 interrupted run, exact matching inputs/model/rubrics/schema may reuse successful calls;
 preserve unsuccessful attempts when repairing failures.
 
+## Re-evaluate a prediction dataset with another VLM
+
+`evaluation.dataset` freezes all canonical predictions in a synchronized
+MemoryBenchPredictionsV1 directory. It reuses the original case annotations and GT
+identities, **never the previous evaluator's judgments**. Real videos use the real
+GT; DirectAction uses its matching simulation GT. Missing or hash-mismatched GTs
+are reported before requests. Exclude them only explicitly with
+`--skip-missing-references`; exclusions never become zero scores.
+
+```bash
+pip install -e '.[vlm-batch]'
+python -m evaluation.dataset prepare \
+  --dataset /data/MemoryBenchPredictionsV1 \
+  --run /data/MemoryBenchPredictionsV1/.metadata/evaluation_runs/gpt5_6_sol_20261022 \
+  --namespace vlm_gpt5_6_sol \
+  --baseline-jobs /data/MemoryBenchPredictionsV1/.metadata/evaluation_runs/qwen38_20261018/jobs.json \
+  --real-gt-root /data/MemoryBenchDataV1 --sim-gt-root /data/MemoryDataV1-Sim
+python -m evaluation.dataset run \
+  --dataset /data/MemoryBenchPredictionsV1 \
+  --run /data/MemoryBenchPredictionsV1/.metadata/evaluation_runs/gpt5_6_sol_20261022 \
+  --namespace vlm_gpt5_6_sol --provider-config /private/provider.yaml
+```
+
+The private YAML uses `openai_base_url`, `llm_name`, `key`, `api_version`, and
+`max_parrel_requests` (the existing configuration spelling). Keys are used only
+in request headers. The configured concurrency applies globally; requests use
+`max_completion_tokens`, omit temperature, and retain the framework's original
+Gate and eight-frame scoring rules. `--pilot 4` runs deterministic examples;
+running again without `--pilot` resumes those same results as part of the batch.
+
+Results and prompts are saved under each prediction's
+`eval_results/vlm_gpt5_6_sol/`; per-generation-model summaries use the same named
+folder in that model's `eval_results/`. Existing Qwen results in `eval_results/vlm/`
+and their summaries remain intact. Use a distinct namespace and run directory
+for every evaluator or protocol. `progress.json`, `summaries.json`,
+`excluded_jobs.json`, and `events.jsonl` in the run directory track coverage.
+`.metadata/vlm_evaluators.json` maps evaluator names to their distinct result paths.
+Pending cases keep the headline incomplete. Re-running the same command skips
+completed cases and reuses only exact matching successful GPT calls, retaining
+failed attempt records. Unresolved cases get up to three resumable batch passes
+(`--retry-rounds`); authentication failures stop further requests.
+A process lock prevents duplicate runners.
+
 ## Dashboard (separate repository)
 
 The read-only viewer, diagnostic tree, bilingual UI and case/video browser have moved to

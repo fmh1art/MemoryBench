@@ -49,6 +49,7 @@ async def evaluate_case(
     max_skew_seconds=0.1,
     resume=False,
     selected_metrics=None,
+    result_metadata=None,
 ):
     selected_metrics = (
         select_metrics(metrics=selected_metrics)
@@ -74,6 +75,7 @@ async def evaluate_case(
         "case_aggregation_policy": "all_cases_gate_failed_zero",
         "scoring_version": SCORING_VERSION,
         "selected_metrics": list(selected_metrics),
+        **(result_metadata or {}),
     }
     try:
         gt_image, gen_image, sampling = await asyncio.to_thread(
