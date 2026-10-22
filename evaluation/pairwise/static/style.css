@@ -651,3 +651,9 @@ footer span {
   padding: 18px 10px;
   font-size: 17px;
 }
+
+#model-references video {
+  width: 100%;
+  max-height: 420px;
+  background: #111;
+}

@@ -30,6 +30,14 @@
       <details class="session-details"><summary>续评码与评估规则</summary><p>换设备时，用此续评码恢复记录。请自行保存，不要分享：<code id="my-code">当前浏览器已登录；续评码见首次登记时保存的记录。</code><button id="copy-code" class="text-button" hidden>复制</button></p><p>综合考虑文本一致性、运动与物理合理性、物体恒存性，只选择 A、B 或 Tie。GT 用于参考目标状态，允许合理视角和动作轨迹差异。整体表现相近时选 Tie。</p></details>
 
       <div id="task-content">
+        <p id="sampling-note" class="muted"></p>
+        <section id="model-references" class="panel" hidden>
+          <h2>对应的仿真参考</h2><p>下方参考对应指定预测。请用对应参考判断场景状态；真实视频 GT 仍保留供比较。</p>
+          <div class="two-columns">
+            <div id="reference-card-A" hidden><h3>A 的仿真参考</h3><video id="reference-video-A" controls muted playsinline preload="metadata"></video><p id="reference-context-A"></p></div>
+            <div id="reference-card-B" hidden><h3>B 的仿真参考</h3><video id="reference-video-B" controls muted playsinline preload="metadata"></video><p id="reference-context-B"></p></div>
+          </div>
+        </section>
         <section class="panel context-panel"><div class="context-label"><span class="step">01</span><h2>理解任务</h2></div><div><h3>Text Prompt</h3><p id="common-prompt" class="prompt-text"></p><div id="separate-prompts" class="two-columns" hidden><div><h3>A 的文本条件</h3><p id="prompt-a" class="prompt-text"></p></div><div><h3>B 的文本条件</h3><p id="prompt-b" class="prompt-text"></p></div></div><details><summary>评估说明 <span class="muted">用于评估，不代表模型输入</span></summary><dl><dt>要求动作</dt><dd id="action-description"></dd><dt>目标范围</dt><dd id="memory-target"></dd><dt>动作完成条件</dt><dd id="success-criterion"></dd></dl></details></div></section>
 
         <div class="reference-grid">

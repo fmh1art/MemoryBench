@@ -41,10 +41,11 @@ class Issue(Body):
     description: str = Field(min_length=1, max_length=2000)
 
 
-def create_app(study_path, db_path, secure_cookie=False):
+def create_app(study_path, db_path, secure_cookie=False, *, open_assignment=False, random_assignment=False):
     study, signature, tasks = load_study(study_path)
-    store = Store(db_path, study, signature, tasks)
-    cookie = COOKIE + "_" + signature[:12]
+    store = Store(db_path, study, signature, tasks, open_assignment=open_assignment,
+                  random_assignment=random_assignment)
+    cookie = COOKIE + "_" + store.cookie_namespace
     app = FastAPI(title="MemoryBench Pairwise", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
 
@@ -86,6 +87,10 @@ def create_app(study_path, db_path, secure_cookie=False):
     @app.get("/api/config")
     def config():
         return {"title": study.title, "raters_per_pair": study.raters_per_pair,
+                "open_assignment": store.open_assignment,
+                "random_assignment": store.random_assignment,
+                "models": len(study.models), "cases": len(study.cases), "total_tasks": len(tasks),
+                "session_id": store.session_namespace,
                 "study_id": signature[:16], "annotation_protocol": ANNOTATION_PROTOCOL}
 
     @app.post("/api/session")
@@ -150,8 +155,13 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8920)
     parser.add_argument("--secure-cookie", action="store_true", help="Use when serving behind HTTPS")
+    parser.add_argument("--open-assignment", action="store_true",
+                        help="Allow every reviewer to judge every task once, beyond the per-pair target")
+    parser.add_argument("--random-assignment", action="store_true",
+                        help="Sample tasks uniformly with replacement; no reviewer or per-pair quota")
     args = parser.parse_args()
-    app = create_app(args.study, args.db, args.secure_cookie)
+    app = create_app(args.study, args.db, args.secure_cookie,
+                     open_assignment=args.open_assignment, random_assignment=args.random_assignment)
     uvicorn.run(app, host=args.host, port=args.port, access_log=False)
 
 

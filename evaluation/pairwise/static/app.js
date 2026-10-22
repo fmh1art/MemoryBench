@@ -23,7 +23,7 @@ async function api(path, data) {
   }
   return result;
 }
-function key(suffix) { return "memorybench-pairwise-" + config.study_id + "-" + suffix; }
+function key(suffix) { return "memorybench-pairwise-" + (config.session_id || config.study_id) + "-" + suffix; }
 function localGet(name) { try { return JSON.parse(localStorage.getItem(key(name))); } catch { return null; } }
 function localSet(name, data) { try { localStorage.setItem(key(name), JSON.stringify(data)); } catch {} }
 function localRemove(name) { try { localStorage.removeItem(key(name)); } catch {} }
@@ -73,11 +73,14 @@ window.addEventListener("beforeunload", keepLocal);
 function promptText(prompt) {
   return !prompt.recorded ? "未记录文本条件" : prompt.text === null || prompt.text === "" ? "无文本条件" : prompt.text;
 }
+function requiredMediaCount() { return 4 + Object.keys(current?.references || {}).length; }
 function mediaState() {
-  $("media-state").textContent = errors.size ? "存在播放故障，请报告问题并跳过" : ready.size === 4 ? "4 段视频已就绪" : `正在加载视频（${ready.size} / 4）…`;
-  $("submit-vote").disabled = busy || blocked || ready.size !== 4 || errors.size > 0 || !checked();
+  const required = requiredMediaCount();
+  $("media-state").textContent = errors.size ? "存在播放故障，请报告问题并跳过" : ready.size === required ? `${required} 段视频已就绪` : `正在加载视频（${ready.size} / ${required}）…`;
+  $("submit-vote").disabled = busy || blocked || ready.size !== required || errors.size > 0 || !checked();
 }
 function suppressEvents(slot) { suppress.set(slot, performance.now() + 400); }
+function playbackMaster() { return current?.playback_master || "gt"; }
 function seekAll(time) {
   if (!current) return;
   time = Math.max(0, Math.min(current.timeline_seconds, time));
@@ -96,7 +99,8 @@ function pauseAll() {
 async function playAll(time) {
   if (!current) return;
   if (time !== undefined) seekAll(time);
-  const now = Math.max(0, videos.gt.currentTime - current.clips.gt.start_seconds);
+  const master = playbackMaster();
+  const now = Math.max(0, videos[master].currentTime - current.clips[master].start_seconds);
   if (now >= current.timeline_seconds - .03) seekAll(0);
   for (const slot of future) {
     const video = videos[slot]; suppressEvents(slot);
@@ -127,12 +131,15 @@ for (const [slot, video] of Object.entries(videos)) {
     seekAll(video.currentTime - current.clips[slot].start_seconds);
   });
 }
-videos.gt.addEventListener("ended", () => { if ($("sync").checked) pauseAll(); });
+for (const slot of future) videos[slot].addEventListener("ended", () => {
+  if ($("sync").checked && slot === playbackMaster()) pauseAll();
+});
 function tick() {
-  if (current && !videos.gt.paused && !videos.gt.seeking) {
-    const time = Math.max(0, Math.min(current.timeline_seconds, videos.gt.currentTime - current.clips.gt.start_seconds));
+  const master = playbackMaster();
+  if (current && !videos[master].paused && !videos[master].seeking) {
+    const time = Math.max(0, Math.min(current.timeline_seconds, videos[master].currentTime - current.clips[master].start_seconds));
     $("timeline").value = String(time); updateClock(time);
-    if ($("sync").checked) for (const slot of ["A", "B"]) {
+    if ($("sync").checked) for (const slot of future.filter(slot => slot !== master)) {
       const video = videos[slot], clip = current.clips[slot];
       const desired = Math.min(clip.duration_seconds - .001, time + clip.start_seconds);
       if (!video.seeking && Math.abs(video.currentTime - desired) > .12) { suppressEvents(slot); video.currentTime = desired; }
@@ -142,26 +149,53 @@ function tick() {
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
-$("play-all").onclick = () => videos.gt.paused ? playAll() : pauseAll();
+$("play-all").onclick = () => videos[playbackMaster()].paused ? playAll() : pauseAll();
 $("restart").onclick = () => { pauseAll(); seekAll(0); };
 $("timeline").oninput = event => seekAll(Number(event.target.value));
 $("jump-read").onclick = () => seekAll(current?.read_start_seconds || 0);
-$("sync").onchange = () => { if ($("sync").checked) { pauseAll(); seekAll(videos.gt.currentTime - current.clips.gt.start_seconds); } };
+$("sync").onchange = () => { if ($("sync").checked && current) { const master = playbackMaster(); pauseAll(); seekAll(videos[master].currentTime - current.clips[master].start_seconds); } };
 $("future-speed").onchange = event => { for (const slot of future) videos[slot].playbackRate = Number(event.target.value); };
 $("history-speed").onchange = event => videos.history.playbackRate = Number(event.target.value);
 document.querySelectorAll(".fullscreen").forEach(button => button.onclick = () => videos[button.dataset.slot].requestFullscreen?.());
 
 async function next() {
   clearTimeout(saveTimer); clearInterval(heartbeatTimer); pauseAll(); videos.history.pause();
+  for (const slot of ["A", "B"]) $("reference-video-" + slot).pause();
   const response = await api("/api/next"); current = response.task; blocked = false; busy = false;
   $("completed").textContent = response.progress.completed;
+  $("sampling-note").textContent = response.progress.random_assignment ?
+    `当前题库：${config.models} 个模型、${config.cases} 个 case、${response.progress.total_tasks} 个比较组合。随机出题，可能重复；每次提交独立保存，可随时退出后续评。` : "";
   $("task-content").hidden = !current; $("finished").hidden = !!current;
   if (!current) {
-    $("finished-title").textContent = response.progress.study_complete ? "本轮评估已完成，谢谢参与。" : "当前没有待领取任务";
-    $("finished-description").textContent = response.progress.study_complete ? "所有提交均已保存到服务器，你可以关闭页面。" : "你可能已完成所有可评样本，或其他评估者正在评估。你的记录已保存，可以稍后刷新。";
-    return;
+    const personalComplete = response.progress.personal_complete;
+    $("refresh-tasks").textContent = personalComplete ? "检查新增任务" : "刷新任务";
+    $("finished-title").textContent = personalComplete ? "你已完成本轮全部可评任务，谢谢参与。" :
+      response.progress.study_complete ? "本轮评估已完成，谢谢参与。" : "任务暂时已被其他评估者领取";
+    $("finished-description").textContent = personalComplete ?
+      `当前题库共 ${response.progress.total_tasks} 题，你已提交 ${response.progress.completed} 次判断，报告 ${response.progress.issues} 个播放问题。记录已保存；刷新不会重复分配已完成的题目，需要管理员增加新任务后才能继续。` :
+      response.progress.study_complete ? "本轮所需判断已收齐，你的记录已保存。" :
+      "你的记录已保存。其他评估者的任务占用释放后，可以刷新页面继续。";
+    return response;
   }
-  revision = current.revision; ready.clear(); errors.clear();
+  const references = current.references || {};
+  ready.clear(); errors.clear();
+  $("model-references").hidden = !Object.keys(references).length;
+  for (const slot of ["A", "B"]) {
+    const reference = references[slot], video = $("reference-video-" + slot);
+    video.onloadeddata = null; video.onloadedmetadata = null; video.onerror = null;
+    video.pause(); video.removeAttribute("src"); video.load();
+    $("reference-card-" + slot).hidden = !reference;
+    if (reference) {
+      video.src = reference.url;
+      video.preload = "auto";
+      video.onloadeddata = () => { ready.add("reference-" + slot); errors.delete("reference-" + slot); mediaState(); };
+      video.onerror = () => { if (video.getAttribute("src")) { errors.add("reference-" + slot); mediaState(); } };
+      video.onloadedmetadata = () => { video.currentTime = reference.start_seconds; };
+      $("reference-context-" + slot).textContent = [reference.action_description, reference.memory_target,
+        reference.success_criterion].filter(Boolean).join("；");
+    }
+  }
+  revision = current.revision;
   $("vote-form").reset(); started = performance.now();
   const cached = localGet("draft-" + current.assignment_id);
   restore(cached && cached.revision === revision ? cached.answers : current.draft);
@@ -190,9 +224,10 @@ async function next() {
     });
   }, 60000);
   window.scrollTo({top: 0, behavior: "instant"});
+  return response;
 }
 $("vote-form").onsubmit = async event => {
-  event.preventDefault(); if (!current || busy || blocked || errors.size || ready.size !== 4) return;
+  event.preventDefault(); if (!current || busy || blocked || errors.size || ready.size !== requiredMediaCount()) return;
   if (!checked()) return message("请选择 A、B 或 Tie。");
   clearTimeout(saveTimer); busy = true; mediaState();
   const aid = current.assignment_id;
@@ -215,7 +250,17 @@ $("report-issue").onclick = async () => {
     message("问题已记录，本题未计作模型失败。" ); await next();
   } catch (error) { busy = false; message(error.message, true); mediaState(); }
 };
-$("refresh-tasks").onclick = () => next().catch(error => message(error.message, true));
+$("refresh-tasks").onclick = async () => {
+  const button = $("refresh-tasks");
+  button.disabled = true;
+  try {
+    const response = await next();
+    if (!response.task) message(response.progress.personal_complete ?
+      `已检查：当前仍为 ${response.progress.total_tasks} 题，暂无新增任务。已有标注已保存。` :
+      "已检查：当前没有可领取任务，请稍后再试。");
+  } catch (error) { message(error.message, true); }
+  finally { button.disabled = false; }
+};
 
 async function enter(name) {
   $("welcome").hidden = true; $("workspace").hidden = false; $("identity").hidden = false;

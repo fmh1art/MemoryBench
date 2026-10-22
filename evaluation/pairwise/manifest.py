@@ -3,6 +3,7 @@
 import hashlib
 import itertools
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -107,15 +108,20 @@ def model_reference(study, case_id, model):
 def load_study(path):
     path = Path(path).resolve()
     study = Study.model_validate_json(path.read_text(encoding="utf-8"))
-    fingerprints = []
-    for case in study.cases:
-        for clip in [case.history, case.gt, *case.predictions.values()]:
-            clip.path = str((path.parent / clip.path).resolve())
-            file = Path(clip.path)
-            if not file.is_file():
-                raise ValueError(f"Missing video for {case.case_id}: {file}")
-            stat = file.stat()
-            fingerprints.append((clip.path, stat.st_size, stat.st_mtime_ns))
+    def fingerprint(item):
+        cid, clip = item
+        clip.path = str((path.parent / clip.path).resolve())
+        file = Path(clip.path)
+        if not file.is_file():
+            raise ValueError(f"Missing video for {cid}: {file}")
+        stat = file.stat()
+        return (clip.path, stat.st_size, stat.st_mtime_ns)
+    clips = [(case.case_id, clip) for case in study.cases
+             for clip in [case.history, case.gt, *case.predictions.values()]]
+    # BOS metadata latency dominates a full human study. map retains the original
+    # ordering, so signatures and existing task/session identities do not change.
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        fingerprints = list(pool.map(fingerprint, clips))
     references = study.provenance.get("model_references", {})
     cases = {case.case_id: case for case in study.cases}
     required = study.provenance.get("reference_models", [])

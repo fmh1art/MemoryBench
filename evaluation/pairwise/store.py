@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from . import ANNOTATION_PROTOCOL, CHOICES
-from .manifest import split
+from .manifest import model_reference, split
 
 LEASE_SECONDS = 1800
 
@@ -36,8 +36,10 @@ def normalize_vote(value):
 
 
 class Store:
-    def __init__(self, path, study, signature, tasks):
+    def __init__(self, path, study, signature, tasks, *, open_assignment=False, random_assignment=False):
         self.path, self.study, self.signature, self.tasks = Path(path), study, signature, tasks
+        self.random_assignment = random_assignment
+        self.open_assignment = open_assignment or random_assignment
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection() as db:
             db.executescript("""
@@ -75,6 +77,21 @@ class Store:
                 db.execute("INSERT INTO metadata VALUES ('annotation_protocol', ?)", (ANNOTATION_PROTOCOL,))
                 db.execute("UPDATE assignments SET draft='{}',revision=revision+1 WHERE state='assigned'")
             self.secret = db.execute("SELECT value FROM metadata WHERE key='secret'").fetchone()[0]
+            self.cookie_namespace = db.execute("SELECT value FROM metadata WHERE key='cookie_namespace'").fetchone()
+            self.cookie_namespace = self.cookie_namespace[0] if self.cookie_namespace else signature[:12]
+            session_namespace = db.execute("SELECT value FROM metadata WHERE key='session_namespace'").fetchone()
+            self.session_namespace = session_namespace[0] if session_namespace else signature[:16]
+            if random_assignment:
+                # Repeated judgements are separate immutable rows; never overwrite old votes.
+                schema = db.execute("SELECT sql FROM sqlite_master WHERE name='assignments'").fetchone()[0]
+                if 'UNIQUE(rater, task)' in schema:
+                    db.execute(schema.replace('CREATE TABLE assignments', 'CREATE TABLE assignments_repeat', 1)
+                               .replace('UNIQUE(rater, task),', ''))
+                    db.execute('INSERT INTO assignments_repeat SELECT * FROM assignments')
+                    db.execute('DROP TABLE assignments')
+                    db.execute('ALTER TABLE assignments_repeat RENAME TO assignments')
+                    db.execute('CREATE INDEX task_assignments ON assignments(task,state,lease)')
+                    db.execute('CREATE INDEX rater_assignments ON assignments(rater,state)')
         self.path.chmod(0o600)
 
     @contextlib.contextmanager
@@ -136,6 +153,8 @@ class Store:
     def ensure_capacity(self, db, row):
         if row["state"] != "assigned":
             raise Conflict("本题已提交或已报告播放问题")
+        if self.open_assignment:
+            return
         active = db.execute("SELECT COUNT(*) FROM assignments WHERE task=? AND id<>? AND (state='voted' OR (state='assigned' AND lease>?))",
                             (row["task"], row["id"], time.time())).fetchone()[0]
         if active >= self.study.raters_per_pair:
@@ -144,6 +163,18 @@ class Store:
     def next(self, rater):
         now = time.time()
         with self.transaction() as db:
+            if self.random_assignment:
+                # Resume drafts even after expiry. Do not scan the full voting history or quotas.
+                pending = db.execute("SELECT * FROM assignments WHERE rater=? AND state='assigned' ORDER BY created LIMIT 1",
+                                     (rater,)).fetchone()
+                if pending:
+                    db.execute('UPDATE assignments SET lease=? WHERE id=?', (now + LEASE_SECONDS, pending['id']))
+                    return self.public_task(pending), self.progress(db, rater)
+                selected = secrets.choice(tuple(self.tasks))
+                aid = secrets.token_hex(16)
+                db.execute('INSERT INTO assignments(id,rater,task,swapped,lease,created,updated) VALUES(?,?,?,?,?,?,?)',
+                           (aid, rater, selected, secrets.randbelow(2), now + LEASE_SECONDS, now, now))
+                return self.public_task(self.assigned(db, rater, aid)), self.progress(db, rater)
             rows = db.execute("SELECT * FROM assignments WHERE rater=?", (rater,)).fetchall()
             occupied = {r["task"] for r in rows if r["state"] != "assigned"}
             counts = {r["task"]: dict(r) for r in db.execute("""
@@ -157,7 +188,8 @@ class Store:
                     db.execute("UPDATE assignments SET lease=? WHERE id=?", (now + LEASE_SECONDS, row["id"]))
                     return self.public_task(row), self.progress(db, rater)
             available = [task for key, task in self.tasks.items() if key not in occupied and
-                         counts.get(key, {}).get("active", 0) < self.study.raters_per_pair]
+                         (self.open_assignment or
+                          counts.get(key, {}).get("active", 0) < self.study.raters_per_pair)]
             if not available:
                 return None, self.progress(db, rater)
             recent = [self.tasks[r["task"]]["case"].case_id for r in sorted(rows, key=lambda r: r["updated"], reverse=True)[:3]]
@@ -182,27 +214,45 @@ class Store:
     def progress(self, db, rater):
         completed = db.execute("SELECT COUNT(*) FROM assignments WHERE rater=? AND state='voted'", (rater,)).fetchone()[0]
         issues = db.execute("SELECT COUNT(*) FROM assignments WHERE rater=? AND state='issue'", (rater,)).fetchone()[0]
-        total = db.execute("SELECT COUNT(*) FROM assignments WHERE state='voted'").fetchone()[0]
+        covered = set() if self.random_assignment else {row[0] for row in db.execute(
+            "SELECT task FROM assignments WHERE state='voted' GROUP BY task HAVING COUNT(*)>=?",
+            (self.study.raters_per_pair,))}
         return {"completed": completed, "issues": issues, "total_tasks": len(self.tasks),
-                "study_complete": total >= len(self.tasks) * self.study.raters_per_pair}
+                "remaining_tasks": None if self.random_assignment else max(0, len(self.tasks) - completed - issues),
+                "personal_complete": False if self.random_assignment else completed + issues >= len(self.tasks),
+                "random_assignment": self.random_assignment,
+                "open_assignment": self.open_assignment,
+                "study_complete": False if self.random_assignment else all(task in covered for task in self.tasks)}
 
     def public_task(self, row):
         task = self.tasks[row["task"]]
         case = task["case"]
         a, b = (task["right"], task["left"]) if row["swapped"] else (task["left"], task["right"])
         clips = {"history": case.history, "gt": case.gt, "A": case.predictions[a], "B": case.predictions[b]}
+        references = {}
+        for slot, model in (("A", a), ("B", b)):
+            reference = model_reference(self.study, case.case_id, model)
+            if reference:
+                references[slot] = {"url": f'/api/media/{row["id"]}/reference-{slot}',
+                                    **reference.model_dump(exclude={"clip"}),
+                                    "start_seconds": reference.clip.start_seconds,
+                                    "duration_seconds": reference.clip.duration_seconds}
+        future_slots = ('gt', 'A', 'B')
+        master = max(future_slots, key=lambda slot: clips[slot].duration_seconds - clips[slot].start_seconds) if references else 'gt'
         return {
             "assignment_id": row["id"], "revision": row["revision"],
             "action_description": case.action_description, "memory_target": case.memory_target,
             "success_criterion": case.success_criterion,
             "read_start_seconds": case.read_start_seconds, "read_end_seconds": case.read_end_seconds,
-            "timeline_seconds": case.gt.duration_seconds - case.gt.start_seconds,
+            "timeline_seconds": clips[master].duration_seconds - clips[master].start_seconds,
+            "playback_master": master,
             "clips": {slot: {"url": f'/api/media/{row["id"]}/{slot}',
                               "start_seconds": clip.start_seconds,
                               "duration_seconds": clip.duration_seconds} for slot, clip in clips.items()},
             "prompts": {slot: {"recorded": case.predictions[model].prompt_recorded,
                                "text": case.predictions[model].prompt} for slot, model in (("A", a), ("B", b))},
             "draft": json.loads(row["draft"]),
+            "references": references,
         }
 
     def heartbeat(self, rater, aid):
@@ -246,6 +296,12 @@ class Store:
             return case.history.path
         if slot == "gt":
             return case.gt.path
+        if slot in ("reference-A", "reference-B"):
+            a, b = (task["right"], task["left"]) if row["swapped"] else (task["left"], task["right"])
+            reference = model_reference(self.study, case.case_id, a if slot == 'reference-A' else b)
+            if reference is None:
+                raise KeyError("No separate reference")
+            return reference.clip.path
         if slot not in ("A", "B"):
             raise KeyError("Unknown video")
         a, b = (task["right"], task["left"]) if row["swapped"] else (task["left"], task["right"])

@@ -16,7 +16,7 @@ GT 用于参考目标状态，允许合理的视角和动作轨迹差异。Histo
 
 ## 本机访问
 
-已启动独立的 `memorybench-pairwise-demo.service`，监听 `127.0.0.1:8920`。在 VS Code 转发 **8920**，或从自己电脑执行：
+人工服务监听服务器的 `127.0.0.1:8920`。在 VS Code 转发 **8920**，或从自己电脑执行：
 
 ```bash
 ssh -N -L 8920:127.0.0.1:8920 <用户名>@<服务器>
@@ -26,12 +26,14 @@ ssh -N -L 8920:127.0.0.1:8920 <用户名>@<服务器>
 
 服务使用：
 
-- 研究清单：`evaluation/pairwise/runs/demo/study-with-prompts.json`
-- 投票数据库：`evaluation/pairwise/runs/demo/votes.sqlite3`
-- 3 个真实 case（1 IID、2 OOD），DWM / Hand2World / RynnWorld-Teleop 三模型共 9 个比较任务；每题目标 3 人，共 27 次独立判断。
-- 既有评估者和匿名 A/B 分配保持；更换表单前数据库已备份在 `runs/demo/backups/pre-abtie-*.sqlite3`。旧多维草稿不作为新的综合选择。
+- 全量研究清单：`evaluation/pairwise/runs/human-all-15-20261022/study.json`
+- 投票数据库：`/var/lib/memorybench-human/votes.sqlite3`
+- 15 个非 tail 模型、649 个 case、57,577 个比较组合；同 case 全配对，允许模型覆盖不齐。随机有放回出题，不设个人次数或单题人数上限。
+- 原 demo 的 9 道比较及其历史标注保留。GE-SIM、DreamDojo 分别显示对应仿真参考。研究扩充后需刷新整个网页；未提交草稿会继续原题，提交后从全量题库随机抽取。
 
-服务由 transient systemd 托管，会话退出后继续运行，机器重启后需重新启动。查看状态用 `systemctl status memorybench-pairwise-demo.service`，停止用 `systemctl stop memorybench-pairwise-demo.service`。已有服务运行时不要再启动同端口实例。
+服务以 root 独立后台进程运行，会话退出后继续运行，机器重启后需重新启动。用 `ps -eo user,pid,args | grep '[e]valuation.pairwise.server'` 查看实际 PID 和参数。重启使用下述备份迁移工具，并传入当前 `--study` 路径；已有服务运行时不要启动同端口实例。实际部署状态以 `http://127.0.0.1:8920/api/config` 和 `/var/lib/fmh/runtime/memorybench-human-status.json` 为准。
+
+如果本地端口 8920 被旧转发占用，在 VS Code 将该行的本地端口改为 18920，再打开 `http://127.0.0.1:18920/`。服务器端口仍是 8920。页面显示题库规模；全量部署应为 15 个模型、649 个 case、57,577 个组合。
 
 ## 安装与启动
 
@@ -59,7 +61,58 @@ python -m evaluation.pairwise.server \
 
 多人共享一个服务实例。若通过受邀内网直接访问，可显式用 `--host 0.0.0.0`；HTTPS 反代加 `--secure-cookie`，由可信反代正确传递 scheme/host。代号与续评码用于受邀评估和续评，不作为实名鉴权或防止重复注册的身份系统。
 
+组内多人都需要参与时，启动参数增加 `--open-assignment`。该模式允许每位评估者独立完成所有比较一次，其他人的任务占用或已达标的单题人数不会阻止领取；`raters_per_pair` 保留为研究的目标人数。原有投票、草稿、匿名 A/B 映射和续评码继续使用，不改变 study 签名。同一评估者完成全部比较后会明确显示个人完成状态，不会重复投票。
+
+本机 root 启动的 8920 人工 demo 使用 `/var/lib/memorybench-human/votes.sqlite3`。在 **root 终端**从项目根目录执行以下命令，可切换开放领取并沿用原数据库（将 PID 换成实际运行该 demo 的进程号）：
+
+```bash
+/var/lib/fmh/venvs/memorybench-pairwise/bin/python \
+  -m evaluation.pairwise.restart_demo --pid <现有demo的PID>
+```
+
+工具会核对 PID、study 和数据库，在线备份后停止旧服务，再做一次包含最后提交的备份，使用同一数据库重启并验证旧投票、评估者身份和任务映射仍在。备份保存在数据库旁的 `backups/`，只含计数的重启结果写入 `/var/lib/fmh/runtime/memorybench-human-status.json`。重启后每位同学刷新页面即可继续，无需重新登记。数据库目录仍保持 root 私有。
+
+全量服务再次重启时增加 `--study evaluation/pairwise/runs/human-all-15-20261022/study.json --random-assignment`，确保沿用当前完整题库和随机模式。只查看某位评估者的提交次数及不同 case/比较数，可运行 `python -m evaluation.pairwise.restart_demo --stats-rater '评估者代号'`；该操作只读，不重启，也不输出续评码或投票选择。
+
+### 导出人工记录并对照 VLM Elo
+
+正式 SQLite 保存姓名和续评凭据，不能直接提交到数据仓库。在 root 终端用 `python -m evaluation.pairwise.restart_demo --export-human <新的快照目录>` 导出：同一只读事务取得全部已提交记录，按实际 A/B 映射还原模型，用稳定 HMAC 代号替代评估者身份，排除姓名、续评码、会话密钥、原始评估者 ID、逐票精确时间及草稿。保留每次重复判断的独立记录和耗时；不改动在线数据库。
+
+```bash
+python -m evaluation.pairwise.human_report \
+  --vlm-run /path/to/MemoryBenchPredictionsV1/.metadata/evaluation_runs/pairwise_20261021_terra_merged \
+  --human-snapshot /path/to/human-snapshot \
+  --output /path/to/new-comparison
+```
+
+输出 `comparison.csv/json`、`vlm_only/`、`vlm_plus_human/` 和说明。沿用相同 Bradley–Terry 实现并核对 VLM 点估计与既有榜单一致，逐票等权，保留人工重复，不加权、不多数投票；本工具只计算点估计，不生成置信区间。VLM 使用无 History 的抽帧拼图，人工使用带 History 的完整视频；合并分数是混合观看协议的阶段性统计。
+
+人工导出是注明北京时间的累计快照，不会随每次在线提交自动更新。后续快照应使用新目录；只选择一个人工快照及一个最新合并 VLM run，不能将重叠的历史 run 再次相加。逐视频 VLM Gate/维度评分和播放故障不属于两两偏好，不能并入 Elo。
+
 ## 输入清单与抽样
+
+### 全量非 tail 人工题库与随机出题
+
+`--random-assignment` 从完整 case/model-pair 集合中等概率、有放回抽取，不设个人次数或单题人数限制，自动包含开放领取。A/B 每次重新随机，重复比较保存为不同记录。刷新、重连或并发标签页继续同一份未提交草稿；提交请求重试不重复计票。原数据库的 `(rater,task)` 唯一约束在事务内移除，原有行全部保留。
+
+准备全量题库使用 `python -m evaluation.pairwise.human_study`，参数为 `--predictions`、`--data`、`--jobs`、`--source`（旧 study）、`--sim-data`（MemoryDataV1-Sim 本机目录）和 `--output`（新的 study 路径）。只排除 `_tail`；不限制 case 数，不按自动评估结果筛选；同一 case 下有效预测全部两两配对，允许模型覆盖不齐及短预测。逐个用 ffprobe 校验视频，缓存 path/size/mtime 对应时长，`study.audit.json` 记录数量及不可用素材。
+
+GE-SIM 和 DreamDojo 使用各自仿真 GT，通过匿名 A/B 对应的独立播放器展示。缺失的仿真 GT 写入审计并阻止部署，不用真实 GT 替代。原九题的预测、提示、历史、GT 和评估范围保持不变。
+
+包含仿真参考时，同步播放覆盖 GT/A/B 中最长的实际视频段，短视频停在末帧，避免较短的真实 GT 提前截断仿真预测；独立参考播放器可单独回看。不改变原分辨率、帧率或时间速度。纯真实视频配对继续沿用 GT future 时间轴。
+
+准备成功后，在 root 终端执行：
+
+```bash
+python -m evaluation.pairwise.restart_demo --pid <现有demo的PID> \
+  --new-study /path/to/new/study.json --random-assignment
+```
+
+工具核验旧任务含义未变，在线备份、停止服务后再次备份，更新 study 元数据，沿用原数据库、浏览器会话、续评码及草稿，再启动随机模式。健康检查失败时恢复旧研究元数据并启动旧命令。以线上 `/api/config` 的 `random_assignment`、`models`、`cases`、`total_tasks` 及重启回执确认实际部署状态。
+
+下文的单人不重复规则适用于普通配额及 `--open-assignment` 模式；随机模式下，所有重复判断独立保留并计分。
+
+全量验收工具 `python -m evaluation.pairwise.tests.full_smoke --study ... --predictions ... --output <新测试目录> [--browser-python <装有Playwright的Python>]` 会对照完整预测索引检查 case/model 联集、全部配对，并逐模型对验证领题、Range 视频读取、草稿、提交及重试。浏览器检查覆盖所有模型、真实/仿真参考组合、刷新续评和移动端布局。所有脚本投票仅写入新建的 `SCRIPTED-VALIDATION-ONLY.sqlite3`，不能作为人工偏好或合并进正式数据库。
 
 输入格式兼容现有 `evaluation/cases.example.json`，可额外提供 `history_video`、`text_prompt`。仅访问明确传入的清单及直接引用的素材，不递归扫描项目或磁盘。
 
