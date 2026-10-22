@@ -254,6 +254,28 @@ failed attempt records. Unresolved cases get up to three resumable batch passes
 (`--retry-rounds`); authentication failures stop further requests.
 A process lock prevents duplicate runners.
 
+To evaluate a fixed sample per generation model, stop the source runner first,
+then freeze a new plan using the already verified source jobs:
+
+```bash
+python -m evaluation.dataset sample \
+  --dataset /data/MemoryBenchPredictionsV1 \
+  --source-run /data/MemoryBenchPredictionsV1/.metadata/evaluation_runs/gpt5_6_sol_20261022 \
+  --run /data/MemoryBenchPredictionsV1/.metadata/evaluation_runs/gpt5_6_sol_sample100_20261022 \
+  --namespace vlm_gpt5_6_sol --sample-size 100 --seed 20261022
+```
+
+Start `run` with the new run directory and the same provider configuration.
+Sampling ranks case IDs by a seeded SHA256 hash without inspecting judgments.
+Each model gets exactly 100 distinct eligible cases; models with identical pools
+use the same case IDs. Models with smaller pools sample from their own available
+cases. Missing references stay excluded. Successful matching GPT calls/results
+are reused only when their cases are selected. Nonselected results are retained
+but excluded from this sample's statistics. Sample summaries are explicitly
+marked and stored at `eval_results/<namespace>/<run-directory-name>/summary.json`;
+the evaluator registry points to this separate summary. To prevent restarting a
+superseded full run, place a `superseded_by.json` receipt in its run directory.
+
 ## Dashboard (separate repository)
 
 The read-only viewer, diagnostic tree, bilingual UI and case/video browser have moved to

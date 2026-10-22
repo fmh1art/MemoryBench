@@ -137,6 +137,58 @@ def prepare(args):
     print(json.dumps({k: v for k, v in report.items() if k != "blocked_references"}, ensure_ascii=False), flush=True)
 
 
+def sample_jobs(jobs, size, seed):
+    """Uniform hash ranking shares case choices across models with the same pool."""
+    if size < 1:
+        raise ValueError("Sample size must be positive")
+    pools = defaultdict(list)
+    for job in jobs:
+        if "preflight_error" not in job:
+            pools[(job["group"], job["model"])].append(job)
+    selected = []
+    for key, pool in sorted(pools.items()):
+        ids = [j["case"]["case_id"] for j in pool]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"Duplicate case IDs in {key}")
+        if len(pool) < size:
+            raise ValueError(f"Only {len(pool)} eligible cases in {key}; requested {size}")
+        def rank(job):
+            case_id = job["case"]["case_id"]
+            return hashlib.sha256(f"{seed}\0{case_id}".encode()).hexdigest(), case_id
+        selected.append(sorted(pool, key=rank)[:size])
+    if not selected:
+        raise ValueError("No eligible models to sample")
+    # Interleave models so early progress covers every model, independent of scores.
+    return [pool[index] for index in range(size) for pool in selected]
+
+
+def prepare_sample(args):
+    source = args.source_run.resolve()
+    prior = read(source / "preflight.json")
+    if not args.dataset.samefile(prior["dataset"]) or prior["namespace"] != args.namespace:
+        raise ValueError("Dataset and namespace must match the frozen source run")
+    jobs = read(source / "jobs.json")
+    selected = sample_jobs(jobs, args.sample_size, args.seed)
+    definition = {"size_per_model": args.sample_size, "seed": args.seed,
+        "algorithm": "SHA256(seed + NUL + case_id), lowest ranks within each model's eligible pool; no labels used",
+        "shared_cases": "Identical candidate pools select identical cases; different pools retain their own coverage",
+        "source_run": str(source), "source_jobs_sha256": digest(source / "jobs.json"),
+        "source_total": len(jobs), "model_populations": dict(Counter(j["model"] for j in jobs if "preflight_error" not in j))}
+    args.run.mkdir(parents=True, exist_ok=False)
+    write_json(args.run / "jobs.json", selected)
+    write_json(args.run / "excluded_jobs.json", read(source / "excluded_jobs.json"))
+    write_json(args.run / "sample.json", definition)
+    write_json(args.run / "preflight.json", {**prior, "created_at": now(),
+        "source_dataset_total": prior["total"], "total": len(selected), "ready": len(selected),
+        "scheduled": len(selected), "models": dict(Counter(j["model"] for j in selected)),
+        "evaluation_scope": "sample_per_model", "sampling": definition,
+        "summary_subdirectory": args.run.name})
+    if (source / "evaluator.json").exists():
+        write_json(args.run / "evaluator.json", read(source / "evaluator.json"))
+    print(json.dumps({"scheduled": len(selected), "models": len(definition["model_populations"]),
+        "sample_size": args.sample_size, "seed": args.seed, "run": str(args.run)}), flush=True)
+
+
 def model_settings(config, args):
     base = Path(__file__).parent
     sources = [base / "common.md", base / "memory_common.md", *(base / d / "rubric.md" for d in SCHEMAS)]
@@ -175,11 +227,13 @@ def register_evaluator(root, run, namespace, identity):
         for model, entry in entries.items():
             if entry["namespace"] == namespace and model != identity["model"]:
                 raise ValueError("Evaluation namespace already belongs to a different VLM")
+        preflight = read(run / "preflight.json") if (run / "preflight.json").exists() else {}
+        summary_suffix = "/" + preflight["summary_subdirectory"] if preflight.get("summary_subdirectory") else ""
         entries[identity["model"]] = {"model": identity["model"], "namespace": namespace,
             "case_result": "{group}/{method}/{case}/eval_results/" + namespace + "/result.json",
-            "model_summary": "{group}/{method}/eval_results/" + namespace + "/summary.json",
+            "model_summary": "{group}/{method}/eval_results/" + namespace + summary_suffix + "/summary.json",
             "run": run.resolve().relative_to(root).as_posix(), "scoring_version": SCORING_VERSION,
-            "legacy": False}
+            "evaluation_scope": preflight.get("evaluation_scope", "full_dataset"), "legacy": False}
         registry["updated_at"] = now()
         write_json(path, registry)
     finally:
@@ -187,6 +241,8 @@ def register_evaluator(root, run, namespace, identity):
 
 
 def summaries(root, run, jobs, results, namespace, identity, started):
+    preflight = read(run / "preflight.json")
+    scope = preflight.get("evaluation_scope", "full_dataset")
     by_model = defaultdict(list)
     expected = Counter((j["group"], j["model"]) for j in jobs)
     for key, result in results.items():
@@ -195,15 +251,20 @@ def summaries(root, run, jobs, results, namespace, identity, started):
     for key, total in expected.items():
         summary = summarize(by_model[key]) if by_model[key] else {"total_cases": 0, "benchmark_complete": False}
         summary.update(evaluator=identity["model"], evaluation_namespace=namespace, expected_cases=total,
-                       pending_cases=total - len(by_model[key]))
+                       pending_cases=total - len(by_model[key]), evaluation_scope=scope, run=str(run))
+        if "sampling" in preflight:
+            summary["sampling"] = preflight["sampling"]
         if summary["pending_cases"]:
             summary.update(benchmark_complete=False, memory_score=None, memory_score_100=None)
             if isinstance(summary.get("report"), dict):
                 summary["report"]["memory_score"] = None
         dest = root / key[0] / key[1] / "eval_results" / namespace
+        if preflight.get("summary_subdirectory"):
+            dest /= preflight["summary_subdirectory"]
         dest.mkdir(parents=True, exist_ok=True)
         if not (dest / "run.json").exists():
-            write_json(dest / "run.json", {**identity, "run": str(run), "expected_cases": total})
+            write_json(dest / "run.json", {**identity, "run": str(run), "expected_cases": total,
+                "evaluation_scope": scope, "sampling": preflight.get("sampling")})
         write_json(dest / "summary.json", summary)
         model_summaries[key[1]] = summary
     statuses = Counter(r["status"] for r in results.values())
@@ -211,7 +272,7 @@ def summaries(root, run, jobs, results, namespace, identity, started):
         "total": len(jobs), "completed": sum(v for k, v in statuses.items() if k != "error"),
         "errors": statuses.get("error", 0), "pending": len(jobs) - len(results),
         "blocked_references": sum("preflight_error" in j for j in jobs), "statuses": dict(statuses),
-        "excluded_missing_references": read(run / "preflight.json").get("excluded", 0),
+        "excluded_missing_references": preflight.get("excluded", 0), "evaluation_scope": scope,
         "elapsed_seconds": round(time.monotonic() - started, 1),
         "benchmark_complete": len(results) == len(jobs) and not statuses.get("error"),
         "models": {m: {k: s.get(k) for k in ("expected_cases", "total_cases", "pending_cases", "gate_passed", "error_cases", "memory_score_100")} for m, s in model_summaries.items()}}
@@ -221,6 +282,8 @@ def summaries(root, run, jobs, results, namespace, identity, started):
 
 
 async def execute(args):
+    if (args.run / "superseded_by.json").exists():
+        raise ValueError("This run was superseded; use the replacement run in superseded_by.json")
     config = provider(args.provider_config)
     root = args.dataset.resolve()
     jobs = read(args.run / "jobs.json")
@@ -310,11 +373,14 @@ async def execute(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("prepare", "run"))
+    parser.add_argument("mode", choices=("prepare", "sample", "run"))
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--namespace", required=True)
     parser.add_argument("--baseline-jobs", type=Path)
+    parser.add_argument("--source-run", type=Path)
+    parser.add_argument("--sample-size", type=int, default=100)
+    parser.add_argument("--seed", type=int, default=20261022)
     parser.add_argument("--real-gt-root", type=Path)
     parser.add_argument("--sim-gt-root", type=Path)
     parser.add_argument("--skip-missing-references", action="store_true",
@@ -331,6 +397,11 @@ def main():
     args = parser.parse_args()
     if not re.fullmatch(r"vlm_[a-z0-9_]+", args.namespace):
         parser.error("namespace must have the form vlm_model_name")
+    if args.mode == "sample":
+        if not args.source_run:
+            parser.error("sample requires --source-run")
+        prepare_sample(args)
+        return 0
     if args.mode == "prepare":
         if not all((args.baseline_jobs, args.real_gt_root, args.sim_gt_root)):
             parser.error("prepare requires baseline jobs and both GT roots")
