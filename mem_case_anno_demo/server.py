@@ -293,6 +293,8 @@ def canonical(a: Annotation, meta, errors):
         },
         interval_convention=meta["interval_convention"],
     )
+    if "lightwheel_source" in meta:
+        data["source"]["lightwheel"] = meta["lightwheel_source"]
     if a.annotation_scope == "prefix_generation":
         data["schema_version"] = "acwm.prefix_generation_episode.v2"
         data["boundaries_linked"] = (
@@ -391,11 +393,14 @@ def inference_manifest(row):
         result["contract"]["anchor_frame"] = "prefix_end - 1 in source; prefix_frame_count - 1 in assembled case"
         result["contract"]["rgb_future_ground_truth_allowed"] = False
         result["contract"]["source_interval_overlap"] = row["assembly"]["source_intervals_overlap"]
+    if "lightwheel" in row["source"]:
+        result["status"] = "requires_lightwheel_condition_extraction"
+        result["contract"]["action_source"] = "Original Lightwheel MCAP hand/pose topics; extraction and alignment pending"
     return result
 
 
-def create_app(data_root=DEFAULT_DATA, output_root=DEFAULT_OUTPUT, annotation_mode="keyframes"):
-    catalog = Catalog(Path(data_root))
+def create_app(data_root=DEFAULT_DATA, output_root=DEFAULT_OUTPUT, annotation_mode="keyframes", *, catalog=None):
+    catalog = catalog if catalog is not None else Catalog(Path(data_root))
     output_root = Path(output_root).resolve()
     records_dir = output_root / "episodes"
     records_dir.mkdir(parents=True, exist_ok=True)
@@ -417,6 +422,7 @@ def create_app(data_root=DEFAULT_DATA, output_root=DEFAULT_OUTPUT, annotation_mo
             "cases": len(catalog.cases),
             "output_root": str(output_root),
             "annotation_mode": annotation_mode,
+            "source_kind": getattr(catalog, "source_kind", "wmdata"),
         }
 
     @app.get("/api/cases")
