@@ -108,3 +108,71 @@ def test_queue_resume_and_compressed_export(tmp_path):
     assert json.loads((output/'screening_summary.json').read_text())['records']==1
     store.db.close()
     with pytest.raises(ValueError):Store(db,{'test':'different'})
+
+
+def explicit_suitable():
+    value=valid_annotation()
+    value['memorybench'].update(decision='suitable',memory_events=[
+        dict(kind='write',description='看到目标',evidence_frames=[2]),
+        dict(kind='occlusion',description='柜门关闭，内容不可见',evidence_frames=[8]),
+        dict(kind='read',description='开门后同一物体重新出现',evidence_frames=[18])],candidate_cases=[dict(
+            prefix_start_seconds=0,prefix_end_seconds=4,future_start_seconds=4,future_end_seconds=10,
+            memory_target='柜内红色杯子',why_requires_memory='开门前杯子被柜门挡住',
+            write_evidence_frames=[2],occlusion_evidence_frames=[8],read_evidence_frames=[18],
+            occlusion_description='不透明柜门关闭，杯子不可见',reappearance_description='再次开门，杯子重新可见',
+            same_target_evidence='同一柜格内相同颜色和形状的杯子')])
+    return value
+
+
+def test_suitable_requires_explicit_ordered_occlusion_and_reappearance():
+    stamps=np.linspace(0,9.9,24).tolist()
+    good=explicit_suitable()
+    VideoAnnotation.model_validate(good).validate_timeline(10,actual_seconds=stamps)
+    for field,value in [('occlusion_evidence_frames',[]),('occlusion_description',''),('same_target_evidence',''),
+                        ('read_evidence_frames',[6]),('future_start_seconds',2)]:
+        bad=copy.deepcopy(good);bad['memorybench']['candidate_cases'][0][field]=value
+        with pytest.raises(ValueError):VideoAnnotation.model_validate(bad).validate_timeline(10,actual_seconds=stamps)
+    bad=copy.deepcopy(good);bad['memorybench']['memory_events']=[e for e in bad['memorybench']['memory_events'] if e['kind']!='occlusion']
+    with pytest.raises(ValueError):VideoAnnotation.model_validate(bad).validate_timeline(10)
+
+
+def test_memory_review_preserves_original_descriptions():
+    prior=valid_annotation()
+    response=dict(choices=[dict(finish_reason='stop',message=dict(content=json.dumps(dict(memorybench=explicit_suitable()['memorybench']))))])
+    value=parse_response(response,10,np.linspace(0,9.9,24).tolist(),prior)
+    assert value.overall_description==prior['overall_description']
+    assert value.segments[0].description==prior['segments'][0]['description']
+    assert value.main_objects==prior['main_objects']
+    assert value.memorybench.decision=='suitable'
+
+
+def test_occlusion_fork_reuses_negatives_and_rechecks_positives(tmp_path):
+    from evaluation.source_annotation.migrate import fork_for_occlusion
+    from evaluation.source_annotation.run import build_config,digest
+    oldconfig={'model':'ep-20250612104210-ss27q','old_rule':True}
+    olddb=tmp_path/'old.sqlite3';store=Store(olddb,oldconfig)
+    family='lightwheel-egopro'
+    for name in ['negative','positive','pending','cached']:
+        store.db.execute('INSERT INTO tasks(id,family,package,video,status) VALUES(?,?,?,?,?)',(family+'/'+name,family,name,'/readonly/'+name+'.mp4','pending'))
+    store.db.commit()
+    for name,annotation in [('negative',valid_annotation()),('positive',explicit_suitable())]:
+        path=tmp_path/(name+'.json')
+        result=dict(annotation=annotation,request_traces=[],config_sha256=digest(oldconfig))
+        path.write_text(json.dumps(result))
+        store.finish(dict(id=family+'/'+name),(path,result))
+    oldoutput=tmp_path/'old-output'
+    path=oldoutput/family/'ca'/'cached'/'result.json';path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(dict(annotation=valid_annotation(),request_traces=[],config_sha256=digest(oldconfig))))
+    store.db.execute("UPDATE tasks SET status='running' WHERE package='cached'");store.db.commit();store.db.close()
+    newdb=tmp_path/'new.sqlite3'
+    summary=fork_for_occlusion(olddb,oldoutput,newdb,tmp_path/'new-output')
+    assert summary['cached_results_recovered']==1
+    assert summary['descriptions_retained_without_call']==2
+    assert summary['suitable_to_recheck']==1
+    new=Store(newdb,build_config())
+    assert new.counts()==dict(pending=2,succeeded=2)
+    assert new.claim(1)[0]['package']=='positive'
+    assert new.db.execute("SELECT prior_result_path FROM tasks WHERE package='positive'").fetchone()[0]==str(tmp_path/'positive.json')
+    with __import__('sqlite3').connect(olddb) as old:
+        assert old.execute("SELECT decision FROM tasks WHERE package='positive'").fetchone()[0]=='suitable'
+        assert old.execute("SELECT status FROM tasks WHERE package='cached'").fetchone()[0]=='running'

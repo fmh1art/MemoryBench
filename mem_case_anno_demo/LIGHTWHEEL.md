@@ -34,7 +34,7 @@ python -m mem_case_anno_demo.lightwheel --source-format wmdata --suitable-only \
   --host 0.0.0.0 --port 8892
 ```
 
-默认只读监测本地旧试跑队列 `tasks.sqlite3` 和新判据队列 `tasks-v2.sqlite3`（均在 `/var/lib/fmh/runtime/lightwheel-source-vlm/`）。新队列已完成的判断优先于旧结果；pending 不覆盖旧判断。也可以重复传 `--screening-database <path>`，后传入的优先级更高。
+默认只读监测 `/var/lib/fmh/runtime/lightwheel-source-vlm/tasks-v3.sqlite3`。只有通过新“明确物理遮挡 → 同一目标重新出现”规则的 suitable 才会展示；旧 suitable 在复核通过前不会混入列表。也可以重复传 `--screening-database <path>`，后传入的优先级更高。
 
 页面每 30 秒刷新列表，不会自动丢弃正在编辑的样本。已经打开的视频在更新后仍可保存标注；人工标注独立保存，不会被模型重跑覆盖。UUID 打开功能也受 suitable 筛选约束。VLM 初筛仅供选择回看视频，不代表已人工确认可转成正式 case。
 
@@ -79,3 +79,9 @@ MCAP 首次打开时，从 `/sensor/camera/head_left/video` 提取 H264，CPU �
 
 这一步产物是 RGB 草稿，状态为 `rgb_draft_requires_conditions_and_semantic_review`。
 正式加入 MemoryBenchDataV2 前还需提取/对齐手部与头姿条件，人工审核 `future_action.txt` 与记忆目标语义，完成 V2 索引登记和素材校验。导出器不伪造这些字段，也不直接更新 V1/V2 manifest。
+
+## SSH 转发下的加载速度
+
+首屏与暂停逐帧定位只取带原始 PTS 的 960 像素预览图，点击播放才加载 MP4；整体视频不会在打开页面时抢占转发带宽。元数据/标注/回收列表并行读取，API JSON 压缩，视频 byte-range 与 JPEG 保持原协议。预览缩放不改变源帧号、时间戳、原始视频或导出素材；不传 `width` 参数的帧接口仍返回原始分辨率。
+
+更新后先保存正在编辑的标注，再在 Mac 按 `⌘⇧R` 强制刷新。

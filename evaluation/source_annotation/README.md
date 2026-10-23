@@ -13,11 +13,11 @@
 ```bash
 cd /mnt/bos/tm9b1x/fmh/projects/MemoryBench
 /var/lib/fmh/venvs/memorybench-annotator/bin/python -m evaluation.source_annotation.run \
-  --supervise --workers 64 --prepare-workers 24 --requests-per-second 4
+  --supervise --workers 64 --prepare-workers 16 --requests-per-second 4
 ```
 
-当前 tmux 会话为 `lightwheel-source-vlm-v2`，日志 `/var/lib/fmh/lightwheel-source-vlm-v2.log`。
-早期试跑保存在 `ark-20261023` 与 `tasks.sqlite3`；收紧“普通清理不是记忆读取”判据后的正式任务使用 `ark-20261023-v2` 与 `tasks-v2.sqlite3`，不同 prompt 的结果不混作同一批统计。
+当前 tmux 会话为 `lightwheel-source-vlm-v3`，日志 `/var/lib/fmh/lightwheel-source-vlm-v3.log`。
+早期试跑和 v2 结果分别保存在 `ark-20261023` / `tasks.sqlite3`、`ark-20261023-v2` / `tasks-v2.sqlite3`；当前 v3 使用明确遮挡/重新出现硬条件，输出到 `ark-20261023-v3` / `tasks-v3.sqlite3`，旧版本保留供追溯。
 另一个 tmux 任务 `lightwheel-duration-stats` 生成本次完整录制清单和时长表。
 
 默认模型为 `ep-20250612104210-ss27q`。每次请求优先用 `https://ark.cn-beijing.volces.com/api/v3`。
@@ -38,13 +38,13 @@ python -m evaluation.source_annotation.run --max-new 3 --workers 3 --requests-pe
 只在单源 CSV 已完整生成并通过行数校验后导入；一源未完成不会阻塞另一源处理。
 按完整包目录去重，不包含 `.incomplete`。左右摄像头不重复计数。本次导入的清单就是本次处理快照，目录后续新增的录制不自动混进已经冻结的清单。
 
-默认持久队列 `/var/lib/fmh/runtime/lightwheel-source-vlm/tasks-v2.sqlite3` 位于本地磁盘，使用 WAL。成功结果的压缩副本保存于队列，便于汇总而无需重新逐个读取远端文件。本地剩余空间不足 512 MiB 时暂停，不继续填满磁盘。队列含进度、状态与模型结果，不含 API key。
+默认持久队列 `/var/lib/fmh/runtime/lightwheel-source-vlm/tasks-v3.sqlite3` 位于本地磁盘，使用 WAL。成功结果的压缩副本保存于队列，便于汇总而无需重新逐个读取远端文件。本地剩余空间不足 512 MiB 时暂停，不继续填满磁盘。队列含进度、状态与模型结果，不含 API key。
 
 ## 结果
 
 默认输出目录：
 
-`/mnt/bos/tm9b1x/fmh/data/MemoryBenchAnnotationsV2/lightwheel/source_vlm/ark-20261023-v2/`
+`/mnt/bos/tm9b1x/fmh/data/MemoryBenchAnnotationsV2/lightwheel/source_vlm/ark-20261023-v3/`
 
 每条录制按 `family/UUID前两位/包目录名/` 保存：
 
@@ -78,3 +78,11 @@ Prompt 见 [PROMPT.md](PROMPT.md)，结构校验见 [schema.py](schema.py)。
 ```bash
 python -m pytest -q tests/test_source_annotation.py
 ```
+
+## 明确遮挡与重新出现的硬条件（v3）
+
+当前 prompt 要求 suitable 每个候选都有“先可见 → 物理遮挡后目标/属性不可辨认 → 同一目标重新出现”的三个有序证据阶段。转头、出画、被移走不替代物理遮挡；只关闭而不再打开、只看空表面也不满足。没有抽到必要阶段时只能标 potential / uncertain。
+
+候选新增 `occlusion_evidence_frames`、`occlusion_description`、`reappearance_description`、`same_target_evidence`。校验要求三个阶段帧号严格递增，future 起点位于观察到遮挡之后、重现之前，且写入/读取证据分别落在 prefix/future 区间内。机器校验只核对结构和时序，具体画面仍需人工确认。
+
+`python -m evaluation.source_annotation.migrate` 在旧 runner 收尾后，将 v2 队列备份到新的 v3 队列，恢复已写入缓存但未提交的结果。旧非 suitable 结果及整体描述保留，并标注 `gate_reuse` 来源；旧 suitable 优先重新审核 memorybench 字段，整体描述/分段/物体信息按原值保留。旧队列和结果文件不修改，避免把旧判据下的 suitable 直接当成新规则合格项。

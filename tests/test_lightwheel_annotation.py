@@ -173,6 +173,18 @@ def test_native_wmdata_packages(source,tmp_path):
         assert c.post(f'/api/lightwheel/recordings/{family}/{UUID}__2e818ab2fc').status_code==200
         assert c.post(f'/api/lightwheel/recordings/{family}/bad').status_code==422
     assert not (tmp_path/'native-out/media_cache').exists()
+    # A stricter queue must not prevent saving an already-open human annotation.
+    import sqlite3
+    screening=tmp_path/'empty-screening.sqlite3'
+    with sqlite3.connect(screening) as db:
+        db.execute('CREATE TABLE tasks(id TEXT,family TEXT,package TEXT,status TEXT,decision TEXT)')
+    with TestClient(build_app(wmroot,tmp_path/'native-out',source_format='wmdata',suitable_only=True,screening_databases=[screening])) as c:
+        assert c.get('/api/cases').json()==[]
+        edited=dict(row,revision=r.json()['revision'])
+        saved=c.post('/api/annotations',json=edited)
+        assert saved.status_code==200,saved.text
+        assert saved.json()['revision']==2
+
 
 
 def test_suitable_only_live_selection_and_latest_precedence(tmp_path):

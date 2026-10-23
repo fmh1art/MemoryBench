@@ -105,6 +105,13 @@ class LightwheelWMDataCatalog(Catalog):
         return self.register(family, matches[0])
 
     def view(self, case_id, view_id):
+        # Preserve saves from an already-open review when the strict queue changes.
+        if case_id not in self.packages and self.selection is not None:
+            import re
+            family,separator,package=case_id.partition('__')
+            if separator and family in FAMILIES and re.fullmatch(r'[a-fA-F0-9-]{36}__[a-fA-F0-9]+',package):
+                path=self.root/family/package
+                if (path/'meta/files.parquet').is_file():self.packages[case_id]=path
         if case_id not in self.packages or view_id != 'left':
             raise HTTPException(404, '找不到这个 case / 视角')
         with self._view_lock:
@@ -326,7 +333,7 @@ def build_app(data_root=DEFAULT_ROOT, output_root=DEFAULT_OUTPUT, media_root=Non
     if suitable_only:
         if source_format!='wmdata':raise ValueError('Suitable selection requires native WMData packages')
         if screening_databases is None:
-            screening_databases=[Path('/var/lib/fmh/runtime/lightwheel-source-vlm/tasks.sqlite3'),Path('/var/lib/fmh/runtime/lightwheel-source-vlm/tasks-v2.sqlite3')]
+            screening_databases=[Path('/var/lib/fmh/runtime/lightwheel-source-vlm/tasks-v3.sqlite3')]
     catalog = (LightwheelWMDataCatalog(data_root, limit, recording, screening_databases if suitable_only else None) if source_format == 'wmdata'
                else LightwheelCatalog(data_root, output_root, media_root, limit, recording))
     app = create_app(output_root=output_root, annotation_mode='prefix_generation', catalog=catalog)

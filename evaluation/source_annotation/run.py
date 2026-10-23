@@ -27,6 +27,11 @@ PRIMARY='https://ark.cn-beijing.volces.com/api/v3'
 FALLBACK='https://ark-cn-beijing.bytedance.net/api/v3'
 FAMILIES=('lightwheel-egopro','lightwheel-egostandard')
 PROMPT_PATH=Path(__file__).with_name('PROMPT.md')
+POLICY_VERSION='explicit-occlusion-reappearance-v1'
+
+def build_config(model=MODEL):
+    return dict(model=model,prompt=PROMPT_PATH.read_text(),sheet_version=VERSION,primary=PRIMARY,
+                fallback_only_on_connection_failure=FALLBACK,schema=VideoAnnotation.model_json_schema(),policy_version=POLICY_VERSION)
 
 
 def now():return datetime.now(timezone.utc).isoformat()
@@ -35,7 +40,7 @@ def now():return datetime.now(timezone.utc).isoformat()
 def digest(value):return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
-def parse_response(response,duration):
+def parse_response(response,duration,actual_seconds=None,prior_annotation=None):
     if len(response.get('choices',[]))!=1:raise ValueError('Expected one response choice')
     choice=response['choices'][0]
     if choice.get('finish_reason')!='stop':raise ValueError('Incomplete response: '+str(choice.get('finish_reason')))
@@ -45,7 +50,10 @@ def parse_response(response,duration):
     def unique(pairs):
         if len(dict(pairs))!=len(pairs):raise ValueError('Duplicate JSON keys')
         return dict(pairs)
-    return VideoAnnotation.model_validate(json.loads(content,object_pairs_hook=unique)).validate_timeline(duration)
+    value=json.loads(content,object_pairs_hook=unique)
+    if prior_annotation is not None:
+        value=dict(prior_annotation,memorybench=value['memorybench'])
+    return VideoAnnotation.model_validate(value).validate_timeline(duration,actual_seconds=actual_seconds)
 
 
 class FatalAPIError(RuntimeError):pass
@@ -118,9 +126,10 @@ class Store:
         CREATE INDEX IF NOT EXISTS task_status ON tasks(status);
         ''')
         existing={r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}
-        for name,kind in [('decision','TEXT'),('result_zlib','BLOB'),('prompt_tokens','INTEGER'),('completion_tokens','INTEGER'),('total_tokens','INTEGER')]:
+        for name,kind in [('prior_result_path','TEXT'),('decision','TEXT'),('result_zlib','BLOB'),('prompt_tokens','INTEGER'),('completion_tokens','INTEGER'),('total_tokens','INTEGER')]:
             if name not in existing:self.db.execute(f'ALTER TABLE tasks ADD COLUMN {name} {kind}')
         self.db.execute('CREATE INDEX IF NOT EXISTS task_decision ON tasks(decision,status)')
+        self.db.execute('CREATE INDEX IF NOT EXISTS task_review_order ON tasks(status,(prior_result_path IS NULL))')
         previous=self.db.execute("SELECT value FROM metadata WHERE key='config'").fetchone()
         if previous and json.loads(previous[0])!=config:raise ValueError('Run configuration changed; use a new database/output directory')
         self.db.execute("INSERT OR IGNORE INTO metadata VALUES('config',?)",(json.dumps(config,sort_keys=True),))
@@ -153,9 +162,9 @@ class Store:
 
     def imported(self):return len(self.db.execute("SELECT key FROM metadata WHERE key LIKE 'imported:%'").fetchall())
     def claim(self,n):
-        rows=self.db.execute("SELECT id,family,package,video FROM tasks WHERE status='pending' ORDER BY rowid LIMIT ?",(n,)).fetchall()
+        rows=self.db.execute("SELECT id,family,package,video,prior_result_path FROM tasks WHERE status='pending' ORDER BY (prior_result_path IS NULL),rowid LIMIT ?",(n,)).fetchall()
         self.db.executemany("UPDATE tasks SET status='running',attempts=attempts+1,updated_at=? WHERE id=?",[(now(),r[0]) for r in rows]);self.db.commit()
-        return [dict(zip(('id','family','package','video'),row)) for row in rows]
+        return [dict(zip(('id','family','package','video','prior_result_path'),row)) for row in rows]
     def finish(self,row,path,error=None,requeue=False):
         status='pending' if requeue else 'failed' if error else 'succeeded'
         result=None
@@ -180,10 +189,14 @@ def annotate(row,args,client,config,prep):
             VideoAnnotation.model_validate(previous['annotation']).validate_timeline(previous['sheet']['duration_seconds'])
             return result_path,previous
     started=time.monotonic()
-    with prep:sheet=make_sheet(row['video'],folder)
+    prior=json.loads(Path(row['prior_result_path']).read_text()) if row.get('prior_result_path') else None
+    sheet_folder=Path(prior['sheet']['image_path']).parent if prior else folder
+    with prep:sheet=make_sheet(row['video'],sheet_folder)
     package_path=Path(row['video']).parents[2]
     dataset_info=json.loads((package_path/'dataset.json').read_text())
     prompt=config['prompt']+'\n视频总时长：'+f"{sheet['duration_seconds']:.6f} 秒。\n实际抽样秒数："+json.dumps(sheet['actual_seconds'])
+    if prior:
+        prompt+='\n本次仅复核 memorybench：整体描述、分段活动和主要物体已保存，不要重写。只返回 {\"memorybench\": {...}}，其中 memorybench 严格使用上面的结构及新遮挡硬条件。'
     raw_image=Path(sheet['image_path']).read_bytes()
     image_url='data:image/jpeg;base64,'+base64.b64encode(raw_image).decode()
     payload=dict(model=args.model,messages=[dict(role='user',content=[dict(type='text',text=prompt),
@@ -194,7 +207,7 @@ def annotate(row,args,client,config,prep):
         response,endpoint,request_id=client.post(payload)
         traces.append(dict(endpoint=endpoint,request_id=request_id,provider_id=response.get('id'),
             usage=response.get('usage'),finish_reason=response.get('choices',[{}])[0].get('finish_reason'),time=now()))
-        try:annotation=parse_response(response,sheet['duration_seconds']);break
+        try:annotation=parse_response(response,sheet['duration_seconds'],sheet['actual_seconds'],prior['annotation'] if prior else None);break
         except (ValueError,KeyError,IndexError,TypeError) as exc:
             last_error=client.clean(exc)
             if validation_attempt==2:
@@ -202,13 +215,16 @@ def annotate(row,args,client,config,prep):
                 raise ValueError('Response failed schema/timeline validation: '+last_error) from None
             payload['messages'][0]['content'][0]['text']=prompt+'\n上次输出未通过校验，请纠正：'+last_error[:2000]
             if response.get('choices',[{}])[0].get('finish_reason')=='length':payload['max_tokens']=8192
-    result=dict(schema_version='memorybench.source_video_annotation.v1',status='vlm_screened_requires_human_review',
+    if prior:traces=prior['request_traces']+traces
+    result=dict(policy_version=POLICY_VERSION,schema_version='memorybench.source_video_annotation.v1',status='vlm_screened_requires_human_review',
         id=row['id'],family=row['family'],package=row['package'],recording_id=row['package'].split('__')[0],
         source_video=row['video'],wmdata_dataset=dataset_info,model=args.model,config_sha256=digest(config),
         prompt_sha256=hashlib.sha256(config['prompt'].encode()).hexdigest(),sheet=sheet,
         annotation=annotation.model_dump(),provider_response=response,request_traces=traces,
         created_at=now(),elapsed_seconds=time.monotonic()-started,
         boundary_status='coarse_uniform_samples_not_frame_accurate',human_verified=False)
+    if prior:
+        result['description_provenance']=dict(result_path=row['prior_result_path'],prompt_sha256=prior['prompt_sha256'],reused_unchanged=True)
     atomic_json(result_path,result)
     return result_path,result
 
@@ -269,8 +285,8 @@ def supervise(args):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--inventory',type=Path,default=Path('/var/lib/fmh/data/lightwheel-duration-stats-20261023'))
-    p.add_argument('--output-root',type=Path,default=Path('/mnt/bos/tm9b1x/fmh/data/MemoryBenchAnnotationsV2/lightwheel/source_vlm/ark-20261023-v2'))
-    p.add_argument('--database',type=Path,default=Path('/var/lib/fmh/runtime/lightwheel-source-vlm/tasks-v2.sqlite3'))
+    p.add_argument('--output-root',type=Path,default=Path('/mnt/bos/tm9b1x/fmh/data/MemoryBenchAnnotationsV2/lightwheel/source_vlm/ark-20261023-v3'))
+    p.add_argument('--database',type=Path,default=Path('/var/lib/fmh/runtime/lightwheel-source-vlm/tasks-v3.sqlite3'))
     p.add_argument('--key-file',type=Path,default=Path('/var/lib/fmh/credentials/ark-memorybench-api-key'))
     p.add_argument('--model',default=MODEL)
     p.add_argument('--workers',type=int,default=24)
@@ -284,8 +300,7 @@ def main():
     if min(args.workers,args.prepare_workers)<1:raise ValueError('Worker counts must be positive')
     args.output_root.mkdir(parents=True,exist_ok=True)
     if args.supervise:supervise(args);return
-    config=dict(model=args.model,prompt=PROMPT_PATH.read_text(),sheet_version=VERSION,
-        primary=PRIMARY,fallback_only_on_connection_failure=FALLBACK,schema=VideoAnnotation.model_json_schema())
+    config=build_config(args.model)
     # Local-only run lock prevents two tmux sessions claiming the same queue.
     import fcntl
     args.database.parent.mkdir(parents=True,exist_ok=True)
