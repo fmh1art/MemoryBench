@@ -21,5 +21,5 @@ automated-quality = ["scipy>=1.14", "pyiqa>=0.1.13"]
 include = ["evaluation*", "mem_case_anno_demo*"]
 
 [tool.setuptools.package-data]
-evaluation = ["common.md", "memory_common.md", "README.md", "cases.example.json", "*/rubric.md", "automated/README.md", "pairwise/static/*", "pairwise/README.md", "pairwise/study.example.json", "pairwise/requirements.txt", "pairwise/run.sh"]
+evaluation = ["common.md", "memory_common.md", "README.md", "cases.example.json", "*/rubric.md", "automated/README.md", "source_annotation/PROMPT.md", "source_annotation/README.md", "pairwise/static/*", "pairwise/README.md", "pairwise/study.example.json", "pairwise/requirements.txt", "pairwise/run.sh"]
 mem_case_anno_demo = ["static/*", "LIGHTWHEEL.md"]

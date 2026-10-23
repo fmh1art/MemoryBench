@@ -25,6 +25,19 @@ cd /mnt/bos/tm9b1x/fmh/projects/MemoryBench
 
 每个录制包目录名为 `<UUID>__<hash>`。程序只读取初始有界列表，在打开录制时读取该包的 parquet 元数据，直接播放 head-left MP4，并以 `meta/extents.parquet` 的逐帧 PTS / 传感器时间戳定位。无需 MCAP 或转码。同 UUID 存在多个版本时，输入完整包目录名选择版本。源 WMData 包保持只读。
 
+## 仅展示 suitable 的人工复核队列
+
+当前 8892 实例已开启 `--suitable-only`。只展示 VLM 已完成且判为 `suitable` 的录制；potential、unsuitable、uncertain 和未完成记录不会进入列表，数量不受最初每源 100 条的浏览上限限制。
+
+```bash
+python -m mem_case_anno_demo.lightwheel --source-format wmdata --suitable-only \
+  --host 0.0.0.0 --port 8892
+```
+
+默认只读监测本地旧试跑队列 `tasks.sqlite3` 和新判据队列 `tasks-v2.sqlite3`（均在 `/var/lib/fmh/runtime/lightwheel-source-vlm/`）。新队列已完成的判断优先于旧结果；pending 不覆盖旧判断。也可以重复传 `--screening-database <path>`，后传入的优先级更高。
+
+页面每 30 秒刷新列表，不会自动丢弃正在编辑的样本。已经打开的视频在更新后仍可保存标注；人工标注独立保存，不会被模型重跑覆盖。UUID 打开功能也受 suitable 筛选约束。VLM 初筛仅供选择回看视频，不代表已人工确认可转成正式 case。
+
 ## 兼容旧训练缓存 / MCAP
 
 旧训练目录可显式指定 `--data-root /mnt/bos/tm9b1x/v05-training-ready/egoquest-lightwheel-fps2-20261001-v1/data --source-format training --media-root /path/to/LightwheelAI`。

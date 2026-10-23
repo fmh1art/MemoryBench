@@ -27,6 +27,7 @@ packing and baseline-adapter code has been removed from `evaluation/`.
 
 The annotation app is separate: `python -m mem_case_anno_demo.server --help`.
 For Lightwheel prefix/future annotation, see [the source adapter and demo guide](mem_case_anno_demo/LIGHTWHEEL.md).
+For batch source-video descriptions and MemoryBench candidate screening, see [the resumable VLM workflow](evaluation/source_annotation/README.md).
 
 ## Data and generation
 

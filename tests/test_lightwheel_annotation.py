@@ -173,3 +173,38 @@ def test_native_wmdata_packages(source,tmp_path):
         assert c.post(f'/api/lightwheel/recordings/{family}/{UUID}__2e818ab2fc').status_code==200
         assert c.post(f'/api/lightwheel/recordings/{family}/bad').status_code==422
     assert not (tmp_path/'native-out/media_cache').exists()
+
+
+def test_suitable_only_live_selection_and_latest_precedence(tmp_path):
+    import sqlite3
+    from mem_case_anno_demo.screening import SuitableSelection
+    root=tmp_path/'wmdata'
+    package=UUID+'__abc'
+    other='0000805e-039e-4bcd-b295-18375b1e4242__def'
+    family='lightwheel-egopro'
+    for name in [package,other]:(root/family/name).mkdir(parents=True)
+    def database(name,rows):
+        p=tmp_path/name
+        with sqlite3.connect(p) as db:
+            db.execute('CREATE TABLE tasks(id TEXT PRIMARY KEY,family TEXT,package TEXT,status TEXT,decision TEXT)')
+            db.executemany('INSERT INTO tasks VALUES(?,?,?,?,?)',[(family+'/'+pkg,family,pkg,status,decision) for pkg,status,decision in rows])
+        return p
+    old=database('old.sqlite3',[(package,'succeeded','suitable'),(other,'succeeded','potential')])
+    new=database('new.sqlite3',[])
+    selection=SuitableSelection([old,new],refresh_seconds=0)
+    assert list(selection.refresh())==[family+'/'+package]
+    with TestClient(build_app(root,tmp_path/'out',source_format='wmdata',suitable_only=True,screening_databases=[old,new])) as c:
+        c.app.state.catalog.selection.refresh_seconds=0
+        cases=c.get('/api/cases').json()
+        assert [x['id'] for x in cases]==[family+'__'+package]
+        assert c.get('/api/health').json()['selection']=='suitable_only'
+        assert c.post(f'/api/lightwheel/recordings/{family}/{UUID}').status_code==200
+        assert c.post(f'/api/lightwheel/recordings/{family}/{other}').status_code==422
+        with sqlite3.connect(new) as db:
+            db.executemany('INSERT INTO tasks VALUES(?,?,?,?,?)',[
+                (family+'/'+package,family,package,'succeeded','unsuitable'),
+                (family+'/'+other,family,other,'succeeded','suitable')])
+        cases=c.get('/api/cases').json()
+        assert [x['id'] for x in cases]==[family+'__'+other]
+        assert c.post(f'/api/lightwheel/recordings/{family}/{UUID}').status_code==422
+    assert list(selection.refresh())==[family+'/'+other]

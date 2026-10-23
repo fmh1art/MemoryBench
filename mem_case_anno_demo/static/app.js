@@ -151,5 +151,9 @@ function setupLightwheel(health){
   const load=document.createElement('button');load.textContent='打开指定录制';
   const hint=document.createElement('small');hint.textContent=health.source_format==='wmdata'?'初始列出每源前 100 条，直接播放原始 RGB；可按 UUID 或完整包名打开其他录制。':'初始列出每源前 100 条；可按 UUID 打开其他录制。首次加载需提取视频，请稍候。';
   load.onclick=async()=>{load.disabled=true;try{const item=await api(`/api/lightwheel/recordings/${family.value}/${encodeURIComponent(uuid.value.trim())}`,{method:'POST'});cases=await api('/api/cases');$('search').value='';renderCases();await openCase(item.id);}catch(e){toast(e.message,true);}finally{load.disabled=false;}};
+  if(health.selection==='suitable_only'){
+    hint.textContent='仅展示 VLM 已标为 suitable 的视频；每 30 秒更新列表。';
+    setInterval(async()=>{if(document.hidden||switching)return;try{cases=await api('/api/cases');renderCases();}catch(e){toast(`列表更新失败：${e.message}`,true);}},30000);
+  }
   box.append(family,uuid,load,hint);$('search').before(box);
 }

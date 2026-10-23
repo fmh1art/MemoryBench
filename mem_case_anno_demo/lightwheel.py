@@ -30,10 +30,18 @@ class LightwheelWMDataCatalog(Catalog):
     source_kind = 'lightwheel'
     source_format = 'wmdata'
 
-    def __init__(self, root, limit=100, recording=None):
+    def __init__(self, root, limit=100, recording=None, screening_databases=None):
         self.root = Path(root).resolve()
         self.cases, self.views, self.packages = {}, {}, {}
         self._view_lock = threading.Lock()
+        self._selection_lock = threading.RLock()
+        self.selection_mode = 'suitable_only' if screening_databases is not None else 'all'
+        self.selection = None
+        if screening_databases is not None:
+            from .screening import SuitableSelection
+            self.selection = SuitableSelection(screening_databases)
+            self.refresh(force=True)
+            return
         for family in FAMILIES:
             directory = self.root / family
             if not directory.is_dir():
@@ -51,6 +59,20 @@ class LightwheelWMDataCatalog(Catalog):
                         break
         self.cases = dict(sorted(self.cases.items()))
 
+    def refresh(self,force=False):
+        if self.selection is None:return
+        with self._selection_lock:
+            rows=self.selection.refresh(force)
+            cases={}
+            for row in rows.values():
+                if row['family'] not in FAMILIES or Path(row['package']).name!=row['package']:
+                    raise ValueError('Invalid screened package identity')
+                package=self.root/row['family']/row['package']
+                case_id=f"{row['family']}__{row['package']}"
+                self.packages[case_id]=package
+                cases[case_id]=dict(id=case_id,views=[dict(id='left',name='head_left',width=1920,height=1456)])
+            self.cases=dict(sorted(cases.items()))
+
     def register(self, family, package):
         case_id = f'{family}__{package.name}'
         self.packages[case_id] = package
@@ -61,6 +83,13 @@ class LightwheelWMDataCatalog(Catalog):
         import re
         if family not in FAMILIES or not re.fullmatch(r'[a-fA-F0-9-]{36}(?:__[a-fA-F0-9]+)?', recording):
             raise HTTPException(422, '请选择数据源并填写完整 recording UUID 或包目录名')
+        if self.selection is not None:
+            self.refresh()
+            matches=[case for case in self.cases.values() if case['id'].startswith(family+'__') and
+                     (self.packages[case['id']].name==recording or self.packages[case['id']].name.startswith(recording+'__'))]
+            if not matches:raise HTTPException(422,'此工作台只展示 VLM 已完成且判为 suitable 的录制')
+            if len(matches)>1:raise HTTPException(409,'UUID 对应多个 suitable 包，请输入完整包目录名')
+            return matches[0]
         directory = self.root / family
         matches = []
         if directory.is_dir():
@@ -283,7 +312,7 @@ class LightwheelCatalog(Catalog):
                                            task=row['complete']['source'].get('source_metadata',{}).get('task_name')))
 
 
-def build_app(data_root=DEFAULT_ROOT, output_root=DEFAULT_OUTPUT, media_root=None, limit=100, recording=None, source_format='auto'):
+def build_app(data_root=DEFAULT_ROOT, output_root=DEFAULT_OUTPUT, media_root=None, limit=100, recording=None, source_format='auto', suitable_only=False, screening_databases=None):
     if source_format == 'auto':
         source_format = 'training'
         for family in FAMILIES:
@@ -294,7 +323,11 @@ def build_app(data_root=DEFAULT_ROOT, output_root=DEFAULT_OUTPUT, media_root=Non
                 if entry and (Path(entry.path) / 'meta/files.parquet').is_file():
                     source_format = 'wmdata'
                     break
-    catalog = (LightwheelWMDataCatalog(data_root, limit, recording) if source_format == 'wmdata'
+    if suitable_only:
+        if source_format!='wmdata':raise ValueError('Suitable selection requires native WMData packages')
+        if screening_databases is None:
+            screening_databases=[Path('/var/lib/fmh/runtime/lightwheel-source-vlm/tasks.sqlite3'),Path('/var/lib/fmh/runtime/lightwheel-source-vlm/tasks-v2.sqlite3')]
+    catalog = (LightwheelWMDataCatalog(data_root, limit, recording, screening_databases if suitable_only else None) if source_format == 'wmdata'
                else LightwheelCatalog(data_root, output_root, media_root, limit, recording))
     app = create_app(output_root=output_root, annotation_mode='prefix_generation', catalog=catalog)
 
@@ -310,6 +343,8 @@ def main():
     parser.add_argument('--data-root', type=Path, default=DEFAULT_ROOT)
     parser.add_argument('--output-root', type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument('--media-root', type=Path)
+    parser.add_argument('--suitable-only',action='store_true')
+    parser.add_argument('--screening-database',action='append',type=Path,help='Read-only screening DB, later databases override older decisions')
     parser.add_argument('--source-format', choices=('auto', 'wmdata', 'training'), default='auto')
     parser.add_argument('--limit', type=int, default=100, help='Initial recordings per family; 0 = all (slow)')
     parser.add_argument('--recording', help='Open a specific recording UUID')
@@ -317,7 +352,7 @@ def main():
     parser.add_argument('--port', type=int, default=8892)
     args = parser.parse_args()
     import uvicorn
-    uvicorn.run(build_app(args.data_root,args.output_root,args.media_root,args.limit,args.recording,args.source_format), host=args.host,port=args.port,timeout_graceful_shutdown=5)
+    uvicorn.run(build_app(args.data_root,args.output_root,args.media_root,args.limit,args.recording,args.source_format,args.suitable_only,args.screening_database), host=args.host,port=args.port,timeout_graceful_shutdown=5)
 
 
 if __name__ == '__main__':

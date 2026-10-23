@@ -419,6 +419,7 @@ def create_app(data_root=DEFAULT_DATA, output_root=DEFAULT_OUTPUT, annotation_mo
 
     @app.get("/api/health")
     def health():
+        if hasattr(catalog, "refresh"): catalog.refresh()
         return {
             "ok": True,
             "cases": len(catalog.cases),
@@ -426,10 +427,12 @@ def create_app(data_root=DEFAULT_DATA, output_root=DEFAULT_OUTPUT, annotation_mo
             "annotation_mode": annotation_mode,
             "source_kind": getattr(catalog, "source_kind", "wmdata"),
             "source_format": getattr(catalog, "source_format", "wmdata"),
+            "selection": getattr(catalog, "selection_mode", "all"),
         }
 
     @app.get("/api/cases")
     def cases():
+        if hasattr(catalog, "refresh"): catalog.refresh()
         saved = records()
         return [
             dict(
