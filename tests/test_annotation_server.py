@@ -376,3 +376,27 @@ def test_delete_keeps_backup_checks_revision_and_blocks_resurrection(client, tmp
     with TestClient(create_app(tmp_path/'data',tmp_path/'delete-test','prefix_generation')) as c:
         assert c.get('/api/annotations').json()==[other]
         assert c.get('/api/deleted-annotations').json()==['delete-me']
+
+
+def test_json_compression_and_lightweight_exact_frame(client):
+    import io
+    from PIL import Image
+    case=client.get('/api/cases').json()[0]
+    base=f"/api/cases/{case['id']}/views/{case['views'][0]['id']}"
+    # The 12-frame fixture is smaller than a real recording's metadata.
+    client.app.state.catalog.metadata(case['id'],case['views'][0]['id'])['compression_test_padding']='metadata '*200
+    metadata=client.get(base,headers={'Accept-Encoding':'gzip'})
+    assert metadata.status_code==200
+    assert metadata.headers.get('content-encoding')=='gzip'
+    assert int(metadata.headers['content-length'])<len(metadata.content)
+    original=client.get(base+'/frames/3.jpg')
+    preview=client.get(base+'/frames/3.jpg?width=64')
+    assert preview.status_code==200
+    assert preview.headers['x-frame-index']==original.headers['x-frame-index']=='3'
+    assert preview.headers['x-media-pts']==original.headers['x-media-pts']
+    assert Image.open(io.BytesIO(preview.content)).size==(64,48)
+    assert 'content-encoding' not in preview.headers
+    assert client.get(base+'/frames/3.jpg?width=0').status_code==422
+    video=client.get(base+'/video',headers={'Range':'bytes=0-99','Accept-Encoding':'gzip'})
+    assert video.status_code==206 and len(video.content)==100
+    assert 'content-encoding' not in video.headers

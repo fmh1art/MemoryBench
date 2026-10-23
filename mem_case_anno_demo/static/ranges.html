@@ -23,5 +23,5 @@
 <section class="boundaries panel"><div class="panelHeading"><h2>关键帧</h2><span>用当前帧标记</span></div><p class="muted">标注前缀与生成片段的开始、结束。设置前缀结束时默认同步生成开始。直接修改生成开始会自动解除联动，保留前缀结束；两段之间的源视频不会加入 eval case。</p><label class="inline"><input id="linkBoundaries" type="checkbox" checked>生成开始跟随前缀结束（可取消）</label><label style="display:block;margin:16px 0">Eval case 名称<input id="caseName" type="text" maxlength="500" placeholder="例如：抽屉取物_第一次" style="display:block;width:100%;box-sizing:border-box;margin-top:8px"></label><p class="muted">可选；每条标注独立命名，保存后显示在样本列表中。</p><div id="markRows"></div><button id="endAtVideo">生成结束设为视频末尾</button></section>
 </div>
 <div id="validation" role="status"></div><footer>标注按原始帧号保存，保留 MP4 PTS 与传感器时间戳；不使用平均 FPS 换算动作时间。<br>保存位置：<span id="footerPath"></span></footer>
-</main></div><div id="toast" role="alert"></div><script>window.ACWM_RANGE_MODE=true;</script><script src="/static/app.js?v=delete-sample-5"></script>
+</main></div><div id="toast" role="alert"></div><script>window.ACWM_RANGE_MODE=true;</script><script src="/static/app.js?v=lazy-media-occlusion-v3-20261023"></script>
 </body></html>

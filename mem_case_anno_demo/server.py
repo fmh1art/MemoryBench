@@ -17,9 +17,10 @@ from pathlib import Path
 import av
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 DEFAULT_DATA = Path(os.environ.get("WMDATA_DATA_ROOT", "data/wmdata"))
@@ -35,6 +36,18 @@ LEGACY_FIELDS = (
     "references",
     "notes",
 )
+
+
+class JSONGZipMiddleware:
+    """Compress API JSON while preserving byte-range video and JPEG semantics."""
+    def __init__(self, app):
+        self.app = app
+        self.compressed = GZipMiddleware(app, minimum_size=1000, compresslevel=3)
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get('path', '')
+        compress = scope['type'] == 'http' and path.startswith('/api/') and not path.endswith('/video') and '/frames/' not in path
+        await (self.compressed if compress else self.app)(scope, receive, send)
 
 
 class Reference(BaseModel):
@@ -185,7 +198,7 @@ class Catalog:
         }
 
     @lru_cache(maxsize=128)
-    def frame(self, case_id, view_id, index):
+    def frame(self, case_id, view_id, index, max_width=None):
         meta = self.metadata(case_id, view_id)
         if not 0 <= index < meta["frame_count"]:
             raise HTTPException(422, "帧号超出视频范围")
@@ -198,7 +211,9 @@ class Catalog:
                 actual = frame.pts * stream.time_base
                 if actual == target:
                     data = io.BytesIO()
-                    frame.to_image().save(data, format="JPEG", quality=90)
+                    if max_width and frame.width > max_width:
+                        frame = frame.reformat(width=max_width, height=max(1, round(frame.height * max_width / frame.width)))
+                    frame.to_image().save(data, format="JPEG", quality=82 if max_width else 90)
                     return data.getvalue()
                 if actual > target:
                     break
@@ -408,6 +423,7 @@ def create_app(data_root=DEFAULT_DATA, output_root=DEFAULT_OUTPUT, annotation_mo
     records_dir.mkdir(parents=True, exist_ok=True)
     lock = threading.RLock()
     app = FastAPI(title="ACWM Memory Annotation", docs_url="/api/docs")
+    app.add_middleware(JSONGZipMiddleware)
     app.state.catalog = catalog
     app.state.output_root = output_root
 
@@ -459,8 +475,8 @@ def create_app(data_root=DEFAULT_DATA, output_root=DEFAULT_OUTPUT, annotation_mo
         )
 
     @app.get("/api/cases/{case_id}/views/{view_id}/frames/{frame}.jpg")
-    def frame_image(case_id: str, view_id: str, frame: int):
-        data = catalog.frame(case_id, view_id, frame)
+    def frame_image(case_id: str, view_id: str, frame: int, width: int | None = Query(default=None, ge=64, le=4096)):
+        data = catalog.frame(case_id, view_id, frame, width)
         meta = catalog.metadata(case_id, view_id)
         return Response(
             data,
