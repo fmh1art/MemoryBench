@@ -396,6 +396,8 @@ def inference_manifest(row):
     if "lightwheel" in row["source"]:
         result["status"] = "requires_lightwheel_condition_extraction"
         result["contract"]["action_source"] = "Original Lightwheel MCAP hand/pose topics; extraction and alignment pending"
+        if row["source"]["lightwheel"].get("source_format") == "wmdata":
+            result["contract"]["action_source"] = "WMData hand landmarks21 and camera pose; range extraction pending"
     return result
 
 
@@ -423,6 +425,7 @@ def create_app(data_root=DEFAULT_DATA, output_root=DEFAULT_OUTPUT, annotation_mo
             "output_root": str(output_root),
             "annotation_mode": annotation_mode,
             "source_kind": getattr(catalog, "source_kind", "wmdata"),
+            "source_format": getattr(catalog, "source_format", "wmdata"),
         }
 
     @app.get("/api/cases")

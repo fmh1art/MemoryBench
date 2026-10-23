@@ -130,3 +130,46 @@ def test_native_mcap_lazy_extraction(source,tmp_path):
         assert r.json()['sensor_timestamp_ns'][0]==0
         assert c.post('/api/annotations',json=a).status_code==200
     assert list((out/'media_cache').rglob('left.mp4'))
+
+
+def test_native_wmdata_packages(source,tmp_path):
+    import pandas as pd
+    root,media,recording,video,complete=source
+    wmroot=tmp_path/'wmdata'
+    for family in ['lightwheel-egopro','lightwheel-egostandard']:
+        package=wmroot/family/(UUID+'__2e818ab2fc')
+        (package/'meta').mkdir(parents=True)
+        (package/'data/rgb').mkdir(parents=True)
+        shutil.copyfile(video,package/'data/rgb/t00000-left.mp4')
+        with av.open(str(video)) as v:
+            stream=v.streams.video[0];tb=stream.time_base
+            pts=[f.pts for f in v.decode(stream)]
+        pd.DataFrame([dict(file_id=0,relative_path='data/rgb/t00000-left.mp4',storage_type='video',
+            content_type='rgb_video',video_width=64,video_height=48,video_time_base_num=tb.numerator,
+            video_time_base_den=tb.denominator,checksum='native-test')]).to_parquet(package/'meta/files.parquet')
+        pd.DataFrame([dict(stream_id='rgb-left',file_id=0,logical_sample_start=0,
+            video_frame_pts=pts,video_timestamp_ns=[i*40_000_000 for i in range(12)])]).to_parquet(package/'meta/extents.parquet')
+        pd.DataFrame([dict(stream_id='rgb-left',camera_frame_id='head-left',pixel_domain_id='native-rgb')]).to_parquet(package/'meta/streams.parquet')
+    with TestClient(build_app(wmroot,tmp_path/'native-out',limit=1)) as c:
+        cases=c.get('/api/cases').json()
+        assert len(cases)==2
+        for case in cases:
+            base=f"/api/cases/{case['id']}/views/left"
+            r=c.get(base)
+            assert r.status_code==200,r.text
+            meta=r.json()
+            assert meta['sensor_timestamp_ns'][6]==240_000_000
+            assert meta['lightwheel_source']['source_format']=='wmdata'
+            assert c.get(base+'/video',headers={'Range':'bytes=0-99'}).status_code==206
+            assert c.get(base+'/frames/4.jpg').status_code==200
+        row=annotation(c)
+        r=c.post('/api/annotations',json=row)
+        assert r.status_code==200,r.text
+        assert r.json()['source']['lightwheel']['wmdata_package'].endswith(UUID+'__2e818ab2fc')
+        infer=c.get('/api/export/inference').text
+        assert 'WMData hand landmarks21' in infer
+        family='lightwheel-egopro'
+        assert c.post(f'/api/lightwheel/recordings/{family}/{UUID}').status_code==200
+        assert c.post(f'/api/lightwheel/recordings/{family}/{UUID}__2e818ab2fc').status_code==200
+        assert c.post(f'/api/lightwheel/recordings/{family}/bad').status_code==422
+    assert not (tmp_path/'native-out/media_cache').exists()

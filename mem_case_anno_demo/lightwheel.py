@@ -1,6 +1,6 @@
 """Read-only Lightwheel source catalog for the existing range annotation UI.
 
-Training tensors are never decoded or modified. MCAP RGB is prepared lazily on CPU.
+WMData videos are read directly. Legacy training caches can resolve MCAP RGB lazily.
 """
 from __future__ import annotations
 
@@ -19,10 +19,86 @@ from fastapi import HTTPException
 
 from .server import Catalog, atomic_json, create_app
 
-DEFAULT_ROOT = Path('/mnt/bos/tm9b1x/v05-training-ready/egoquest-lightwheel-fps2-20261001-v1/data')
+DEFAULT_ROOT = Path('/mnt/bos/tm9b1x/wmdata')
 DEFAULT_OUTPUT = Path('/mnt/bos/tm9b1x/fmh/data/MemoryBenchAnnotationsV2/lightwheel')
 FAMILIES = ('lightwheel-egopro', 'lightwheel-egostandard')
 TOPIC = '/sensor/camera/head_left/video'
+
+
+class LightwheelWMDataCatalog(Catalog):
+    """Bounded browsing, lazy per-package parquet reads, exact native PTS mapping."""
+    source_kind = 'lightwheel'
+    source_format = 'wmdata'
+
+    def __init__(self, root, limit=100, recording=None):
+        self.root = Path(root).resolve()
+        self.cases, self.views, self.packages = {}, {}, {}
+        self._view_lock = threading.Lock()
+        for family in FAMILIES:
+            directory = self.root / family
+            if not directory.is_dir():
+                continue
+            count = 0
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if recording and entry.name.split('__')[0] != recording and entry.name != recording:
+                        continue
+                    if not entry.is_dir():
+                        continue
+                    self.register(family, Path(entry.path))
+                    count += 1
+                    if limit and count >= limit:
+                        break
+        self.cases = dict(sorted(self.cases.items()))
+
+    def register(self, family, package):
+        case_id = f'{family}__{package.name}'
+        self.packages[case_id] = package
+        self.cases[case_id] = dict(id=case_id, views=[dict(id='left', name='head_left', width=1920, height=1456)])
+        return self.cases[case_id]
+
+    def discover(self, family, recording):
+        import re
+        if family not in FAMILIES or not re.fullmatch(r'[a-fA-F0-9-]{36}(?:__[a-fA-F0-9]+)?', recording):
+            raise HTTPException(422, '请选择数据源并填写完整 recording UUID 或包目录名')
+        directory = self.root / family
+        matches = []
+        if directory.is_dir():
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if entry.name == recording or entry.name.startswith(recording + '__'):
+                        if entry.is_dir() and (Path(entry.path) / 'meta/files.parquet').is_file():
+                            matches.append(Path(entry.path))
+        if not matches:
+            raise HTTPException(404, '该数据源中没有找到这个 WMData recording')
+        if len(matches) > 1:
+            raise HTTPException(409, 'UUID 对应多个版本，请输入完整包目录名：' + ', '.join(p.name for p in matches))
+        return self.register(family, matches[0])
+
+    def view(self, case_id, view_id):
+        if case_id not in self.packages or view_id != 'left':
+            raise HTTPException(404, '找不到这个 case / 视角')
+        with self._view_lock:
+            if (case_id, view_id) not in self.views:
+                import pandas as pd
+                package = self.packages[case_id]
+                files = pd.read_parquet(package / 'meta/files.parquet')
+                rgb = files[(files.storage_type == 'video') & (files.content_type == 'rgb_video')]
+                left = [r for r in rgb.to_dict('records') if Path(r['relative_path']).stem in ('left', 'camera') or Path(r['relative_path']).stem.endswith('-left')]
+                if len(left) != 1:
+                    raise HTTPException(422, 'WMData 包需要唯一的 head-left RGB 视频，拒绝猜测相机')
+                record = left[0]
+                path = (package / record['relative_path']).resolve()
+                if not path.is_relative_to(package.resolve()) or not path.is_file():
+                    raise HTTPException(422, 'WMData RGB 路径缺失或超出包目录')
+                self.views[(case_id, view_id)] = dict(record, path=path, case_dir=package, view_id=view_id)
+        return self.views[(case_id, view_id)]
+
+    @lru_cache(maxsize=32)
+    def metadata(self, case_id, view_id):
+        meta = super().metadata(case_id, view_id)
+        meta['lightwheel_source'] = dict(source_format='wmdata', wmdata_package=meta['case_path'], original_source=meta['video_path'])
+        return meta
 
 
 def message_class(schema):
@@ -48,6 +124,7 @@ def message_class(schema):
 
 class LightwheelCatalog(Catalog):
     source_kind = 'lightwheel'
+    source_format = 'training'
     def __init__(self, data_root, output_root, media_root=None, limit=100, recording=None):
         self.root = Path(data_root).resolve()
         self.cache = Path(output_root).resolve() / 'media_cache'
@@ -206,8 +283,19 @@ class LightwheelCatalog(Catalog):
                                            task=row['complete']['source'].get('source_metadata',{}).get('task_name')))
 
 
-def build_app(data_root=DEFAULT_ROOT, output_root=DEFAULT_OUTPUT, media_root=None, limit=100, recording=None):
-    catalog = LightwheelCatalog(data_root, output_root, media_root, limit, recording)
+def build_app(data_root=DEFAULT_ROOT, output_root=DEFAULT_OUTPUT, media_root=None, limit=100, recording=None, source_format='auto'):
+    if source_format == 'auto':
+        source_format = 'training'
+        for family in FAMILIES:
+            directory = Path(data_root) / family
+            if directory.is_dir():
+                with os.scandir(directory) as entries:
+                    entry = next((e for e in entries if e.is_dir()), None)
+                if entry and (Path(entry.path) / 'meta/files.parquet').is_file():
+                    source_format = 'wmdata'
+                    break
+    catalog = (LightwheelWMDataCatalog(data_root, limit, recording) if source_format == 'wmdata'
+               else LightwheelCatalog(data_root, output_root, media_root, limit, recording))
     app = create_app(output_root=output_root, annotation_mode='prefix_generation', catalog=catalog)
 
     @app.post('/api/lightwheel/recordings/{family}/{recording}')
@@ -222,13 +310,14 @@ def main():
     parser.add_argument('--data-root', type=Path, default=DEFAULT_ROOT)
     parser.add_argument('--output-root', type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument('--media-root', type=Path)
+    parser.add_argument('--source-format', choices=('auto', 'wmdata', 'training'), default='auto')
     parser.add_argument('--limit', type=int, default=100, help='Initial recordings per family; 0 = all (slow)')
     parser.add_argument('--recording', help='Open a specific recording UUID')
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8892)
     args = parser.parse_args()
     import uvicorn
-    uvicorn.run(build_app(args.data_root,args.output_root,args.media_root,args.limit,args.recording), host=args.host,port=args.port,timeout_graceful_shutdown=5)
+    uvicorn.run(build_app(args.data_root,args.output_root,args.media_root,args.limit,args.recording,args.source_format), host=args.host,port=args.port,timeout_graceful_shutdown=5)
 
 
 if __name__ == '__main__':

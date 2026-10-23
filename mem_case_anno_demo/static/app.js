@@ -115,7 +115,7 @@ $('endAtVideo').onclick=()=>setMark('eval_end',meta.frame_count);
 document.querySelectorAll('[data-preview]').forEach(b=>b.onclick=()=>{const span=spans()[b.dataset.preview];if(span.some(x=>x===null)||span[0]>=span[1]||span[0]<0||span[1]>meta.frame_count){toast('请先设置这一段的有效边界',true);return;}preview=span;seek(span[0],true);play();});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save('draft').catch(err=>toast(err.message,true));return;}if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)||!meta)return;if(e.key===' '){e.preventDefault();play();}else if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();const d=e.key==='ArrowRight'?1:-1;seek(e.shiftKey?frameAtTime(mediaAt(current)+d):current+d);}else if(/^[1-5]$/.test(e.key)&&Number(e.key)<=markDefs.length){e.preventDefault();setMark(markDefs[Number(e.key)-1][0]);}else if(e.key==='Escape'){preview=null;}});
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
-async function init(){try{const [list,health]=await Promise.all([api('/api/cases'),api('/api/health')]);cases=list;if(health.source_kind==='lightwheel')setupLightwheel();$('outputPath').textContent=health.output_root;$('footerPath').textContent=health.output_root;renderCases();const params=new URLSearchParams(location.search);const item=cases.find(c=>c.id===params.get('case'))||cases[0];if(!item)throw new Error('没有找到 WMData RGB 视频');const view=item.views.some(v=>v.id===params.get('view'))?params.get('view'):undefined;await openCase(item.id,view);}catch(e){toast(e.message,true);$('caseTitle').textContent='加载失败';}}
+async function init(){try{const [list,health]=await Promise.all([api('/api/cases'),api('/api/health')]);cases=list;if(health.source_kind==='lightwheel')setupLightwheel(health);$('outputPath').textContent=health.output_root;$('footerPath').textContent=health.output_root;renderCases();const params=new URLSearchParams(location.search);const item=cases.find(c=>c.id===params.get('case'))||cases[0];if(!item)throw new Error('没有找到 WMData RGB 视频');const view=item.views.some(v=>v.id===params.get('view'))?params.get('view'):undefined;await openCase(item.id,view);}catch(e){toast(e.message,true);$('caseTitle').textContent='加载失败';}}
 init();
 
 if(rangeMode)$('linkBoundaries').onchange=()=>{episode.boundaries_linked=$('linkBoundaries').checked;if(episode.boundaries_linked)setMark('prefix_end',episode.marks.prefix_end);else setDirty();};
@@ -139,7 +139,7 @@ if(rangeMode)$('deleteEpisode').onclick=async()=>{
   }catch(e){toast(e.message,true);}finally{button.disabled=false;}
 };
 
-function setupLightwheel(){
+function setupLightwheel(health){
   document.querySelectorAll('main button, main input, main select, #saveDraft, #saveComplete').forEach(el=>el.disabled=true);
   document.title='MemoryBench · 光轮 prefix / future 标注';
   document.querySelector('.brand').textContent='MemoryBench / LIGHTWHEEL';
@@ -147,9 +147,9 @@ function setupLightwheel(){
   const family=document.createElement('select');
   for(const value of ['lightwheel-egopro','lightwheel-egostandard'])family.add(new Option(value,value));
   family.style.width='100%';family.onchange=()=>{$('search').value=family.value;renderCases();};
-  const uuid=document.createElement('input');uuid.placeholder='输入完整 recording UUID';uuid.style.width='100%';
+  const uuid=document.createElement('input');uuid.placeholder='输入 recording UUID 或完整包目录名';uuid.style.width='100%';
   const load=document.createElement('button');load.textContent='打开指定录制';
-  const hint=document.createElement('small');hint.textContent='初始仅列出每源前 100 条；可按 UUID 打开其他录制。首次加载需提取视频，请稍候。';
+  const hint=document.createElement('small');hint.textContent=health.source_format==='wmdata'?'初始列出每源前 100 条，直接播放原始 RGB；可按 UUID 或完整包名打开其他录制。':'初始列出每源前 100 条；可按 UUID 打开其他录制。首次加载需提取视频，请稍候。';
   load.onclick=async()=>{load.disabled=true;try{const item=await api(`/api/lightwheel/recordings/${family.value}/${encodeURIComponent(uuid.value.trim())}`,{method:'POST'});cases=await api('/api/cases');$('search').value='';renderCases();await openCase(item.id);}catch(e){toast(e.message,true);}finally{load.disabled=false;}};
   box.append(family,uuid,load,hint);$('search').before(box);
 }

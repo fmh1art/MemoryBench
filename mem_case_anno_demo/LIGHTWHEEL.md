@@ -11,15 +11,24 @@
 ```bash
 cd /mnt/bos/tm9b1x/fmh/projects/MemoryBench
 /var/lib/fmh/venvs/memorybench-annotator/bin/python -m mem_case_anno_demo.lightwheel \
-  --media-root /path/to/LightwheelAI \
+  --data-root /mnt/bos/tm9b1x/wmdata --source-format wmdata \
   --host 127.0.0.1 --port 8892
 ```
 
 转发服务器 8892 端口后，在浏览器打开 http://127.0.0.1:8892 。
 仅看某条录制可加 `--recording <UUID>`。初始每个源列出 100 条，避免遍历庞大目录；页面左侧可输入完整 UUID 打开其他录制。`--limit` 可修改初始数量，`--limit 0` 显式加载全部目录名，可能较慢。搜索框只筛选已载入列表。
 
-默认 `--data-root` 为 `/mnt/bos/tm9b1x/v05-training-ready/egoquest-lightwheel-fps2-20261001-v1/data`。
-两个训练目录保存 latent 缓存，不含可直接播放的 RGB。程序按录制读取 `COMPLETE.json` 追溯原始 MCAP。
+默认 `--data-root` 为 `/mnt/bos/tm9b1x/wmdata`，直接使用：
+
+- `/mnt/bos/tm9b1x/wmdata/lightwheel-egopro/`
+- `/mnt/bos/tm9b1x/wmdata/lightwheel-egostandard/`
+
+每个录制包目录名为 `<UUID>__<hash>`。程序只读取初始有界列表，在打开录制时读取该包的 parquet 元数据，直接播放 head-left MP4，并以 `meta/extents.parquet` 的逐帧 PTS / 传感器时间戳定位。无需 MCAP 或转码。同 UUID 存在多个版本时，输入完整包目录名选择版本。源 WMData 包保持只读。
+
+## 兼容旧训练缓存 / MCAP
+
+旧训练目录可显式指定 `--data-root /mnt/bos/tm9b1x/v05-training-ready/egoquest-lightwheel-fps2-20261001-v1/data --source-format training --media-root /path/to/LightwheelAI`。
+它们保存 latent 缓存，不含可直接播放的 RGB。此模式按录制读取 `COMPLETE.json` 追溯原始 MCAP。
 如果原路径不可访问，必须用 `--media-root` 指向实际挂载位置。支持以下相对结构：
 
 - `EgoPro/EgoProStandard/mcap/<task>/<UUID>.mcap`
@@ -41,7 +50,7 @@ MCAP 首次打开时，从 `/sensor/camera/head_left/video` 提取 H264，CPU �
 4. 填写可选 case 名称，保存草稿或完成标注。同一录制可新建多个样本，保存支持版本冲突检测与历史版本。
 5. 点击「导出前缀 / 生成片段标注」。已完成样本写入 `exports/evaluation.jsonl`，草稿不导出。
 
-时间边界保存原始显示帧号、MP4 PTS 与传感器时间戳，来源包含训练录制目录、原始 MCAP / MP4 路径及采集时间原点。
+时间边界保存原始显示帧号、MP4 PTS 与传感器时间戳。WMData 模式保存包目录、RGB stream / file ID、校验和及像素域；旧训练模式额外保存原始 MCAP / MP4 路径及采集时间原点。
 界面支持通用独立区间；用于 MemoryBench 导出时要求 `prefix_start < prefix_end <= future_start < future_end`，避免历史/未来重叠造成泄漏。
 
 ## 导出 RGB case 草稿
