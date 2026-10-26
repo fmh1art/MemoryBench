@@ -52,7 +52,7 @@ def validate_evidence(dimension, judgment, read_indices, lighting_style):
 
     if dimension == "gate":
         walk(data["observability"], set(read_indices))
-        walk(data["action_following"], set(range(1, 13)))
+        walk(data["interaction_physics"], set(range(1, 13)))
     else:
         walk(data, set(read_indices))
     if (

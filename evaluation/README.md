@@ -11,7 +11,7 @@ judged and stay uncomputed. Environment and inventory error breakdowns are diagn
 
 ```text
 evaluation/
-  gate/            binary Observability + Action Following schema and rubric
+  gate/            binary Observability + Interaction Physics schema and rubric
   inventory/       semantic count annotations, instance matching and Python formulas
   appearance/      matched objects only: appearance and shape rubrics
   spatial/         placement and relations rubrics, tolerant of camera differences
@@ -49,7 +49,7 @@ A frame before Read or with unresolvable target facts may retain raw insufficien
 
 ## Judge order and scope
 
-1. Gate returns independent Observability and Action Following labels in one query.
+1. Gate returns independent Observability and Interaction Physics labels in one query.
 2. If either label is zero, stop: status=gate_failed, memory_score=0; do not judge Memory submetrics.
 3. For every Memory pair, Inventory and Spatial run concurrently.
 4. Appearance waits for Inventory's semantic matching, then evaluates only matched instances.
@@ -61,7 +61,8 @@ A frame before Read or with unresolvable target facts may retain raw insufficien
 
 Observability evaluates generated visual quality: persistent severe blur, ghosting, artificial
 veiling or scene-wide corruption. A clear empty/wrong scene or natural occlusion does not fail it.
-Action Following checks the correct physical operation/target-region access. Ignore remembered
+Interaction Physics checks whether the correct Read operation produces a physically plausible object
+response and target access (or coherent viewpoint change for camera-only actions). Ignore remembered
 contents in a success criterion: opening the correct drawer still succeeds if its contents differ.
 
 Selecting only Appearance still requires Inventory annotation for matching, but Inventory scores
@@ -70,7 +71,7 @@ one shared request semaphore and QPM/TPM pacer. Every actual attempt, including 
 
 ## Formulas
 
-For case i, g_i = observability_i × action_following_i. Gate Coverage = sum(g_i)/N.
+For case i, g_i = observability_i × interaction_physics_i. Gate Coverage = sum(g_i)/N.
 Do not multiply this coverage into the headline Memory score.
 
 VLM identifies mutually exclusive semantic object groups with GT/Gen counts. Python matches
@@ -291,3 +292,10 @@ python -m memorybench_dashboard --results /path/to/results --dataset /path/to/ev
 
 Open http://127.0.0.1:8767/diagnostics. See the dashboard repository for model comparison,
 Prefix playback, English/Chinese UI, diagnostic grouping and representative-case selection.
+
+Interaction Physics uses `interaction_physics` in Gate outputs and
+`interaction_physics_pass_rate` in summaries. New results record
+`gate_version=interaction_physics.v1`. Historical `action_following` results remain readable
+by the summarizer, with their counts reported separately as `legacy_action_following_cases`;
+compatibility does not mean those results were rejudged for physical response. Re-evaluate
+old videos to obtain scores under the revised Gate rubric.

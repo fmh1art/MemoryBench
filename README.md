@@ -5,7 +5,7 @@ Action-conditioned world model memory evaluation, with auditable VLM judgments a
 ## Evaluation
 
 The evaluation framework uses five VLM judges organized by dimension:
-Gate (Observability and Action Following), Inventory, Appearance, Spatial and Environment.
+Gate (Observability and Interaction Physics), Inventory, Appearance, Spatial and Environment.
 GT and generated videos are uniformly sampled at 12 aligned timestamps into two independent
 2×6 contact sheets. Gate runs first; passing cases receive four concurrent memory judgments.
 Each judgment provides evidence; Inventory metrics are computed from semantic annotations,

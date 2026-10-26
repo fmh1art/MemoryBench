@@ -44,7 +44,7 @@ def replies():
     return {
         "gate": {
             "observability": {"label": 1, "evidence": EVIDENCE},
-            "action_following": {"label": 1, "evidence": EVIDENCE},
+            "interaction_physics": {"label": 1, "evidence": EVIDENCE},
         },
         "inventory": {
             "region_assessable": True,
@@ -370,7 +370,7 @@ def test_gate_then_parallel_memory_calls_and_audit(case, tmp_path):
     assert "base64" not in json.dumps(record)
 
 
-@pytest.mark.parametrize("label", ["observability", "action_following"])
+@pytest.mark.parametrize("label", ["observability", "interaction_physics"])
 def test_gate_failure_skips_all_memory_judges(case, tmp_path, label):
     service = MockService()
     service.outputs["gate"][label]["label"] = 0
@@ -434,7 +434,7 @@ def test_global_concurrency_across_cases(case, tmp_path):
                 "status": "gate_failed",
                 "gate": {
                     "observability": {"label": 0},
-                    "action_following": {"label": 1},
+                    "interaction_physics": {"label": 1},
                 },
             },
             {"status": "error", "gate": None},
@@ -869,7 +869,7 @@ def test_gate_rejections_contribute_zero_without_submetric_grades():
     result = {
         "status": "gate_failed",
         "memory_score": None,
-        "gate": {"observability": {"label": 0}, "action_following": {"label": 1}},
+        "gate": {"observability": {"label": 0}, "interaction_physics": {"label": 1}},
         "selected_metrics": ["appearance.visual_appearance"],
     }
     summary = summarize([result])
@@ -956,3 +956,26 @@ def test_appearance_receives_inventory_matches_only(case, tmp_path):
         context["appearance_matching"]["objects"][0]["matched_count"] == 1
         for context in contexts
     )
+
+
+def test_gate_contract_uses_interaction_physics():
+    payload = replies()['gate']
+    gate = Gate.model_validate(payload)
+    assert gate.interaction_physics.label == 1
+    assert set(gate.model_dump()) == {'observability', 'interaction_physics'}
+    assert set(Gate.model_json_schema()['properties']) == {'observability', 'interaction_physics'}
+    payload['action_following'] = payload.pop('interaction_physics')
+    with pytest.raises(ValidationError):
+        Gate.model_validate(payload)
+
+
+def test_summary_reads_legacy_gate_without_rewriting_it():
+    legacy = {'observability': {'label': 0}, 'action_following': {'label': 1}}
+    current = {'observability': {'label': 1}, 'interaction_physics': {'label': 0}}
+    results = [{'status': 'gate_failed', 'gate': gate} for gate in (legacy, current)]
+    summary = summarize(results)
+    assert summary['legacy_action_following_cases'] == 1
+    assert summary['interaction_physics_pass_rate'] == 0.5
+    assert summary['gate_passed'] == 0
+    assert summary['memory_score'] == 0
+    assert 'interaction_physics' not in legacy

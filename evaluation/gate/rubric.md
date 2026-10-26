@@ -23,7 +23,7 @@ DO NOT fail Observability merely because:
 - a target is naturally hidden under a cup, inside a closed container, behind a hand or outside view;
 - a particular sampled frame cannot support a reliable target-specific count or attribute judgment.
 These are memory-content differences, normal visibility limits or action-access questions, not
-proof of low generated visual quality. Action Following handles whether the requested operation
+proof of low generated visual quality. Interaction Physics handles whether the requested operation
 and target access occurred. Memory submetrics handle confirmed errors or insufficient evidence.
 
 Concrete boundary cases:
@@ -43,19 +43,28 @@ A failing evidence statement must identify actual blur/ghosting/veiling/corrupti
 not visible', 'no target boundary', 'its identity is uncertain' or 'contents differ' alone cannot
 justify 0. Do not invent a quality defect to explain a missing memory object.
 
-**Action Following (0/1).** Return 1 when Gen visibly achieves action_description and
-success_criterion during/after the Read operation: e.g. the intended drawer opens, the intended
-container is revealed, or the camera turns to the specified target region. Use the temporal sequence
-and GT as reference for the requested physical operation and access. If success_criterion also names
-remembered contents (e.g. an empty drawer or a red block), ignore that content clause for this Gate:
-opening the right drawer/lifting the right cup succeeds even if the restored contents are wrong. Allow small timing/trajectory/viewpoint
-differences if the same semantic endpoint and access are achieved. Return 0 for wrong region/container,
-wrong operation, no meaningful action, or evidence too weak to establish success. A generated clip
-already at the requested final view can establish success only when the requested criterion is the
-final view itself; it cannot prove a required opening or motion happened.
+**Interaction Physics (0/1).** Check whether the requested Read interaction produces a
+physically plausible response of the manipulated objects. Return 1 only when Gen visibly
+performs the intended operation on the correct object/region, achieves the semantic access goal,
+and shows a response consistent with the action: a pulled drawer moves along its rails, a lifted
+cup moves with the grasp, or a pushed object moves plausibly after contact. Use the temporal
+sequence and GT to establish the interaction context, contact, motion and constraints.
+Return 0 for a hand moving through a stationary manipulated object, implausible interpenetration,
+teleportation or motion disconnected from the operation, as well as a wrong operation/target,
+no meaningful action, or evidence too weak to establish the interaction and its response.
+For camera-only Read actions, require coherent viewpoint change and access to the specified
+region; do not require an object manipulation that was not requested.
+
+Use action_description and the operational part of success_criterion. Ignore remembered-content
+clauses (e.g. an empty drawer or a red block): opening the right drawer/lifting the right cup can
+pass even if the revealed contents are missing or wrong. Content restoration belongs to Memory.
+Allow small timing, trajectory and viewpoint differences when the same interaction and access
+are achieved with plausible physical response. Do not require exact GT motion or infer forces,
+friction or material parameters from sparse frames. A clip already at the final view can establish
+success only when that view itself is the requested criterion; it cannot prove required motion.
 
 Keep labels independent: an incorrect action may still produce a clear view; a correct action may
-produce an unreadable view. Evaluate action success without requiring correct object contents.
+produce an unreadable view. Evaluate interaction physics without requiring correct remembered contents.
 Each decision must include specific GT/Gen frame evidence. Read frames support Observability;
-any frame can support Action Following. If uncertain, conservatively return 0 and describe the
+any frame can support Interaction Physics. If uncertain, conservatively return 0 and describe the
 limitation. Gate passes only when both labels are 1.

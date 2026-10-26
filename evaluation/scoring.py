@@ -243,11 +243,16 @@ def average_memory_frames(frames):
 def summarize(results: list[dict]) -> dict:
     gates = [item["gate"] for item in results if item.get("gate") is not None]
 
+    def interaction_label(gate):
+        # Preserve access to archived results without rewriting their judgments.
+        key = "interaction_physics" if "interaction_physics" in gate else "action_following"
+        return gate[key]["label"]
+
     def passed(item):
         gate = item.get("gate")
         return (
             gate is not None
-            and gate["observability"]["label"] == gate["action_following"]["label"] == 1
+            and gate["observability"]["label"] == interaction_label(gate) == 1
         )
 
     eligible = [item for item in results if passed(item)]
@@ -309,14 +314,18 @@ def summarize(results: list[dict]) -> dict:
         "case_aggregation_policy": "all_cases_gate_failed_zero",
         "total_cases": len(results),
         "gate_evaluated": len(gates),
+        "legacy_action_following_cases": sum(
+            "interaction_physics" not in gate and "action_following" in gate
+            for gate in gates
+        ),
         "gate_passed": len(eligible),
         "gate_coverage": coverage,
         "gate_pass_rate": len(eligible) / len(gates) if gates else None,
         "observability_pass_rate": mean(g["observability"]["label"] for g in gates)
         if gates
         else None,
-        "action_following_pass_rate": mean(
-            g["action_following"]["label"] for g in gates
+        "interaction_physics_pass_rate": mean(
+            interaction_label(g) for g in gates
         )
         if gates
         else None,

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .api_config import add_api_arguments, resolve_api_arguments
 from .appearance.judge import judge_appearance
+from .gate.schema import GATE_VERSION
 from .judge import Judge, write_json
 from .schema import Case
 from .scoring import (
@@ -69,6 +70,7 @@ async def evaluate_case(
         "case": case.model_dump(),
         "status": "error",
         "gate": None,
+        "gate_version": GATE_VERSION,
         "memory_score": None,
         "protocol": "memory_evaluation.frame_pairs.v3",
         "aggregation_policy": "skip_reference_unavailable_score_generated_failure_zero",
@@ -87,7 +89,7 @@ async def evaluate_case(
         images = (gt_image, gen_image)
         gate = await judge.ask("gate", context, images, calls)
         result["gate"] = gate.model_dump()
-        passed = gate.observability.label == 1 and gate.action_following.label == 1
+        passed = gate.observability.label == 1 and gate.interaction_physics.label == 1
         if not passed:
             result["status"] = "gate_failed"
             result["memory_score"] = 0.0

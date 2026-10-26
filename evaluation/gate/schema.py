@@ -19,6 +19,9 @@ class BinaryDecision(Record):
         return value
 
 
+GATE_VERSION = "interaction_physics.v1"
+
+
 class Judgment(Record):
     observability: BinaryDecision
-    action_following: BinaryDecision
+    interaction_physics: BinaryDecision

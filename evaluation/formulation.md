@@ -82,7 +82,7 @@ s_{i,k,m}=\begin{cases}
 $$
 
 其中，Inventory 的正常分数由数量公式计算，Appearance/Spatial 的正常分数为 VLM 原始分数除以 5。
-GT 是否展示可评价事实决定参考依据；不能仅因 Gen 生成失败而跳过该帧。自然遮挡不能自动视为生成缺陷。整个 Read 阶段未按动作/相机要求访问目标区域，属于 Action Following 失败。
+GT 是否展示可评价事实决定参考依据；不能仅因 Gen 生成失败而跳过该帧。自然遮挡不能自动视为生成缺陷。整个 Read 阶段未按动作/相机要求访问目标区域，属于 Interaction Physics 失败。
 
 null 必须记录原因：reference_unavailable、natural_occlusion、generated_failure、no_matched_objects、not_applicable 或 unknown。API/解析失败属于调用错误，需要重试，不属于分数 0。
 

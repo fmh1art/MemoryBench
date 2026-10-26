@@ -188,7 +188,7 @@ def test_recompute_entire_saved_case_preserves_gate_and_original_files(tmp_path)
     result = {
         "case_id": "sample",
         "case": {"lighting_style": False},
-        "gate": {"observability": {"label": 1}, "action_following": {"label": 1}},
+        "gate": {"observability": {"label": 1}, "interaction_physics": {"label": 1}},
         "status": "scored",
         "selected_metrics": [
             "inventory.object_presence",
